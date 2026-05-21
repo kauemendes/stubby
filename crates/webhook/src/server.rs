@@ -3,7 +3,7 @@ use crate::config::ImageRefs;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -31,7 +31,14 @@ pub fn router(state: AppState) -> Router {
 }
 
 async fn metrics_handler() -> impl IntoResponse {
-    (StatusCode::OK, crate::observability::render())
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        crate::observability::render(),
+    )
 }
 
 fn classify(r: &AdmissionReview) -> (&'static str, &'static str) {
@@ -63,8 +70,7 @@ async fn mutate(State(state): State<AppState>, body: Bytes) -> impl IntoResponse
                     }),
                 }),
             };
-            let (decision, kind) = classify(&synthetic);
-            crate::observability::record_admission(decision, kind);
+            crate::observability::record_admission("error", "pod");
             return (StatusCode::OK, Json(synthetic));
         }
     };
@@ -163,9 +169,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn metrics_endpoint_responds_after_init() {
+    async fn metrics_endpoint_exposes_admission_counter_after_request() {
         crate::observability::init_metrics();
         let app = router(state());
+
+        // Drive one /mutate to make the counter visible in the scrape body.
+        let body = serde_json::json!({
+            "apiVersion": "admission.k8s.io/v1",
+            "kind": "AdmissionReview",
+            "request": {
+                "uid": "metrics-1",
+                "object": {
+                    "apiVersion":"v1","kind":"Pod",
+                    "metadata":{"name":"p","annotations":{"stubby.io/type":"backend"}},
+                    "spec":{"containers":[{"name":"app","image":"orig:1"}]}
+                }
+            }
+        })
+        .to_string();
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mutate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
         let resp = app
             .oneshot(
                 Request::builder()
@@ -176,11 +210,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("text/plain; version=0.0.4; charset=utf-8"),
+        );
         let bytes = body_bytes(resp).await;
         let text = std::str::from_utf8(&bytes).unwrap();
-        // The exporter renders an empty body until a counter increments; just
-        // assert that the endpoint is wired and 200s.
-        assert!(text.is_empty() || text.contains("stubby_admissions_total"));
+        assert!(
+            text.contains("stubby_admissions_total"),
+            "scrape should expose the counter, got: {text}"
+        );
+        assert!(text.contains("decision=\"inject\""));
     }
 
     #[tokio::test]
