@@ -10,7 +10,7 @@ build = "build.rs"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow.workspace = true
+# (runtime currently has no fallible IO; render_index returns String)
 
 [build-dependencies]
 anyhow.workspace = true

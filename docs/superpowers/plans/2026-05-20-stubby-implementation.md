@@ -336,6 +336,7 @@ git commit -m "chore: bootstrap cargo workspace and project metadata"
 - Create: `crates/webhook/src/main.rs`
 - Create: `crates/dummy-backend/Cargo.toml`
 - Create: `crates/dummy-backend/src/main.rs`
+- Create: `crates/dummy-backend/src/lib.rs`
 - Create: `crates/dummy-frontend/Cargo.toml`
 - Create: `crates/dummy-frontend/build.rs`
 - Create: `crates/dummy-frontend/src/lib.rs`
@@ -401,6 +402,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "stubby-dummy-backend"
 path = "src/main.rs"
@@ -424,7 +428,17 @@ fn main() {
 }
 ```
 
+- [ ] **Step 5b: Write `crates/dummy-backend/src/lib.rs` (empty placeholder)**
+
+The Cargo.toml declares `[lib] path = "src/lib.rs"` so the file must exist for the crate to compile. Later tasks (e.g. dummy backend routes) will re-export modules from here.
+
+```rust
+// Re-exports added in later tasks.
+```
+
 - [ ] **Step 6: Write `crates/dummy-frontend/Cargo.toml`**
+
+`render_index` returns `String` (no fallible IO), so the runtime crate intentionally carries no `anyhow` dependency. `build.rs` may grow fallible logic later (template generation in Task 7.1), so `anyhow` stays in `[build-dependencies]`.
 
 ```toml
 [package]
@@ -439,7 +453,7 @@ build = "build.rs"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow.workspace = true
+# (runtime currently has no fallible IO; render_index returns String)
 
 [build-dependencies]
 anyhow.workspace = true
