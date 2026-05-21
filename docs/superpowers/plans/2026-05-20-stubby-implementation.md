@@ -1321,6 +1321,15 @@ pub struct AdmissionResponse {
     pub patch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_type: Option<String>,
+    /// Optional v1 status — used to surface diagnostics (e.g. a failed Pod
+    /// decode) back to the API server so they appear in audit logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<AdmissionStatus>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AdmissionStatus {
+    pub message: String,
 }
 
 pub fn handle(review: AdmissionReview, imgs: &ImageRefs) -> AdmissionReview {

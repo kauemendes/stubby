@@ -32,6 +32,15 @@ pub struct AdmissionResponse {
     pub patch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_type: Option<String>,
+    /// Optional v1 status — used to surface diagnostics (e.g. a failed Pod
+    /// decode) back to the API server so they appear in audit logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<AdmissionStatus>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AdmissionStatus {
+    pub message: String,
 }
 
 pub fn handle(review: AdmissionReview, imgs: &ImageRefs) -> AdmissionReview {
@@ -42,7 +51,13 @@ pub fn handle(review: AdmissionReview, imgs: &ImageRefs) -> AdmissionReview {
     let uid = req.uid.clone();
     let pod: Pod = match serde_json::from_value(req.object) {
         Ok(p) => p,
-        Err(_) => return reply(Some(uid), true, None),
+        Err(e) => {
+            return reply_status(
+                Some(uid),
+                true,
+                format!("stubby: could not decode Pod object: {e}"),
+            );
+        }
     };
     let annotations = pod.metadata.annotations.clone().unwrap_or_default();
     let pod_name = pod.metadata.name.clone().unwrap_or_else(|| "pod".into());
@@ -70,6 +85,22 @@ fn reply(uid: Option<String>, allowed: bool, patch_b64: Option<String>) -> Admis
             allowed,
             patch_type: patch_b64.as_ref().map(|_| "JSONPatch".into()),
             patch: patch_b64,
+            status: None,
+        }),
+    }
+}
+
+fn reply_status(uid: Option<String>, allowed: bool, message: String) -> AdmissionReview {
+    AdmissionReview {
+        api_version: "admission.k8s.io/v1".into(),
+        kind: "AdmissionReview".into(),
+        request: None,
+        response: Some(AdmissionResponse {
+            uid: uid.unwrap_or_default(),
+            allowed,
+            patch: None,
+            patch_type: None,
+            status: Some(AdmissionStatus { message }),
         }),
     }
 }
@@ -112,6 +143,26 @@ mod tests {
         assert!(resp.allowed);
         assert!(resp.patch.is_none());
         assert!(resp.patch_type.is_none());
+    }
+
+    #[test]
+    fn decode_failure_surfaces_status_message() {
+        // `spec` must be an object — passing a string forces serde to reject
+        // the value (an unknown top-level field would be silently ignored).
+        let bogus = json!({"metadata": {"name":"p"}, "spec": "not-an-object"});
+        let r = handle(review(bogus, "u-bad"), &refs());
+        let resp = r.response.unwrap();
+        assert_eq!(resp.uid, "u-bad");
+        assert!(resp.allowed, "decode failures must not block creation");
+        assert!(resp.patch.is_none());
+        let msg = resp
+            .status
+            .expect("decode failure must include status")
+            .message;
+        assert!(
+            msg.starts_with("stubby:"),
+            "status message should be prefixed with 'stubby:', got {msg}"
+        );
     }
 
     #[test]
