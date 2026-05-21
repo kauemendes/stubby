@@ -122,4 +122,70 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn port_override_valid() {
+        let a = ann(&[("stubby.io/type", "backend"), ("stubby.io/port", "9090")]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert_eq!(cfg.port, 9090);
+    }
+
+    #[test]
+    fn port_override_invalid_falls_back_to_default() {
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/port", "notanumber"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert_eq!(cfg.port, 8080);
+    }
+
+    #[test]
+    fn port_override_out_of_range_falls_back_to_default() {
+        let a = ann(&[("stubby.io/type", "backend"), ("stubby.io/port", "99999")]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert_eq!(cfg.port, 8080);
+    }
+
+    #[test]
+    fn app_name_override() {
+        let a = ann(&[
+            ("stubby.io/type", "frontend"),
+            ("stubby.io/app-name", "Orders"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "any") else {
+            panic!()
+        };
+        assert_eq!(cfg.app_name, "Orders");
+    }
+
+    #[test]
+    fn image_override_passes_through() {
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/image-override", "ghcr.io/me/myimg:tag"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert_eq!(cfg.image_override.as_deref(), Some("ghcr.io/me/myimg:tag"));
+    }
+
+    #[test]
+    fn skip_containers_csv_parsed() {
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/skip-containers", "sidecar, audit ,telemetry"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert_eq!(cfg.skip_containers, vec!["sidecar", "audit", "telemetry"]);
+    }
 }
