@@ -1,0 +1,31 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "stubby.fullname" . }}
+  labels: {{- include "stubby.labels" . | nindent 4 }}
+  {{- if eq .Values.tls.mode "cert-manager" }}
+  annotations:
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "stubby.fullname" . }}"
+  {{- end }}
+webhooks:
+  - name: pods.stubby.io
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+    admissionReviewVersions: ["v1"]
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        operations: ["CREATE"]
+        scope: Namespaced
+    namespaceSelector: {{- toYaml .Values.webhook.namespaceSelector | nindent 6 }}
+    clientConfig:
+      service:
+        name: {{ include "stubby.fullname" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate
+        port: {{ .Values.service.port }}
+      {{- if eq .Values.tls.mode "self-signed" }}
+      caBundle: ""  # patched in-place by the self-signed TLS Job (Task 8.4)
+      {{- end }}
