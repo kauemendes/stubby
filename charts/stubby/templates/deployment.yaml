@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stubby.fullname" . }}
+  labels: {{- include "stubby.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "stubby.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "stubby.selectorLabels" . | nindent 8 }}
+      annotations:
+        stubby.io/type: "off"            # never inject into ourselves
+    spec:
+      serviceAccountName: {{ include "stubby.fullname" . }}
+      containers:
+        - name: webhook
+          image: {{ include "stubby.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - { name: STUBBY_IMAGE_BACKEND,  value: {{ .Values.dummyImages.backend  | quote }} }
+            - { name: STUBBY_IMAGE_FRONTEND, value: {{ .Values.dummyImages.frontend | quote }} }
+            - { name: RUST_LOG,              value: {{ .Values.logLevel | quote }} }
+            - { name: STUBBY_LISTEN,         value: "0.0.0.0:8443" }
+          ports:
+            - { containerPort: 8443, name: https }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+          livenessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "stubby.fullname" . }}-tls
