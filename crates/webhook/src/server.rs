@@ -1,13 +1,19 @@
-use crate::admission::{handle, AdmissionReview};
+use crate::admission::{handle, AdmissionResponse, AdmissionReview, AdmissionStatus};
 use crate::config::ImageRefs;
 use axum::{
-    extract::State,
+    body::Bytes,
+    extract::{DefaultBodyLimit, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use std::sync::Arc;
+
+/// Generous upper bound for admission payloads. Pods carrying many sidecars
+/// or large env blocks can exceed axum's 2 MiB default; the API server's
+/// `--max-request-bytes` defaults to ~3 MiB, so 8 MiB has plenty of head room.
+const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -19,13 +25,35 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(|| async { "ok" }))
         .route("/mutate", post(mutate))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
 
-async fn mutate(
-    State(state): State<AppState>,
-    Json(review): Json<AdmissionReview>,
-) -> impl IntoResponse {
+/// Admission webhooks must always reply with HTTP 200 carrying an
+/// `AdmissionReview` envelope — non-200 makes the API server fall back to
+/// `failurePolicy`. We therefore handle malformed bodies ourselves and turn
+/// them into an allowed-but-status-tagged response.
+async fn mutate(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+    let review: AdmissionReview = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            let synthetic = AdmissionReview {
+                api_version: "admission.k8s.io/v1".into(),
+                kind: "AdmissionReview".into(),
+                request: None,
+                response: Some(AdmissionResponse {
+                    uid: String::new(),
+                    allowed: true,
+                    patch: None,
+                    patch_type: None,
+                    status: Some(AdmissionStatus {
+                        message: format!("stubby: malformed AdmissionReview body: {e}"),
+                    }),
+                }),
+            };
+            return (StatusCode::OK, Json(synthetic));
+        }
+    };
     let out = handle(review, state.image_refs.as_ref());
     (StatusCode::OK, Json(out))
 }
@@ -44,6 +72,13 @@ mod tests {
                 frontend: "ghcr.io/test/fe:1".into(),
             }),
         }
+    }
+
+    async fn body_bytes(resp: axum::response::Response) -> Vec<u8> {
+        axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap()
+            .to_vec()
     }
 
     #[tokio::test]
@@ -104,12 +139,37 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .unwrap();
+        let bytes = body_bytes(resp).await;
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["response"]["uid"], "abc");
         assert_eq!(v["response"]["allowed"], true);
         assert!(v["response"]["patch"].is_string());
+    }
+
+    #[tokio::test]
+    async fn mutate_malformed_body_returns_200_with_status() {
+        let app = router(state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mutate")
+                    .body(Body::from("not json at all"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Admission webhook contract: always 200 with an AdmissionReview body,
+        // not a 4xx that the API server would treat as a webhook failure.
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = body_bytes(resp).await;
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["kind"], "AdmissionReview");
+        assert_eq!(v["response"]["allowed"], true);
+        let msg = v["response"]["status"]["message"].as_str().unwrap();
+        assert!(
+            msg.starts_with("stubby:"),
+            "status message should be prefixed, got {msg}"
+        );
     }
 }
