@@ -1,0 +1,23 @@
+---
+source: crates/dummy-frontend/tests/render.rs
+expression: html
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>&lt;script&gt;alert(1)&lt;/script&gt; — stubby</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <span class="badge">dummy mode</span>
+    <h1>&lt;script&gt;alert(1)&lt;/script&gt;</h1>
+    <p>This service is running on the <strong>stubby</strong> placeholder image.
+       The real implementation isn't deployed yet.</p>
+    <footer>
+      <a href="https://github.com/kauemendes/stubby">github.com/kauemendes/stubby</a>
+    </footer>
+  </main>
+</body>
+</html>
