@@ -7,7 +7,7 @@
 **Architecture:** Cargo workspace with three crates (`webhook`, `dummy-backend`, `dummy-frontend`). Webhook implements `AdmissionReview/v1`, returns a JSONPatch that rewrites `image`, `ports`, probes, `command`, `args`, `env`. Dummy images are distroless Rust binary (backend) and `nginx:alpine` (frontend). Helm chart bundles `MutatingWebhookConfiguration`, RBAC, Deployment, Service, and TLS bootstrap (cert-manager or self-signed Job).
 
 **Tech Stack:**
-- **Rust** (stable, pinned via `rust-toolchain.toml`)
+- **Rust** 1.85.0 (pinned via `rust-toolchain.toml`; required minimum because some transitive dependencies use Rust edition 2024)
 - **axum 0.7** — HTTP framework (both webhook and dummy-backend)
 - **kube 0.96** + **k8s-openapi 0.23** (feature `v1_30`) — Kubernetes API types
 - **tokio 1.x** — async runtime
@@ -192,7 +192,7 @@ pub const ALWAYS_SKIP_PREFIXES: &[&str] = &["istio-", "linkerd-", "vault-", "cil
 
 ```toml
 [toolchain]
-channel = "1.83.0"
+channel = "1.85.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
 ```
@@ -210,7 +210,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/kauemendes/stubby"
 authors = ["Kauê Mendes"]
