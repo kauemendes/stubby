@@ -336,4 +336,24 @@ mod tests {
             .collect();
         assert_eq!(paths, vec!["/spec/containers/0/image"]);
     }
+
+    #[test]
+    fn image_override_used_instead_of_default() {
+        let cfg = StubbyConfig {
+            image_override: Some("ghcr.io/me/custom:dev".into()),
+            ..backend_cfg()
+        };
+        let pod = pod_with_containers(json!([{"name":"app","image":"orig:1"}]));
+        let ops = build_patch(&pod, &cfg, &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let img = arr
+            .iter()
+            .find(|x| x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/image"))
+            .unwrap()["value"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(img, "ghcr.io/me/custom:dev");
+    }
 }
