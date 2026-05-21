@@ -1,0 +1,36 @@
+suite: mutatingwebhookconfiguration
+templates:
+  - mutatingwebhookconfiguration.yaml
+tests:
+  - it: targets pods CREATE
+    asserts:
+      - equal:
+          path: webhooks[0].rules[0].resources
+          value: ["pods"]
+      - equal:
+          path: webhooks[0].rules[0].operations
+          value: ["CREATE"]
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Ignore
+
+  - it: requests admission v1 only
+    asserts:
+      - equal:
+          path: webhooks[0].admissionReviewVersions
+          value: ["v1"]
+
+  - it: adds cert-manager annotation in cert-manager mode
+    set:
+      tls.mode: cert-manager
+    asserts:
+      - isNotEmpty:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]
+
+  - it: leaves caBundle empty in self-signed mode
+    set:
+      tls.mode: self-signed
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.caBundle
+          value: ""

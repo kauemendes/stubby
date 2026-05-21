@@ -1,0 +1,40 @@
+suite: tls
+tests:
+  - it: cert-manager mode renders Issuer + Certificate
+    templates: [tls-cert-manager.yaml]
+    set:
+      tls.mode: cert-manager
+    asserts:
+      - hasDocuments: { count: 2 }
+      - containsDocument:
+          kind: Issuer
+          apiVersion: cert-manager.io/v1
+        documentIndex: 0
+      - containsDocument:
+          kind: Certificate
+          apiVersion: cert-manager.io/v1
+        documentIndex: 1
+
+  - it: self-signed mode renders the bootstrap Job
+    templates: [tls-self-signed-job.yaml]
+    set:
+      tls.mode: self-signed
+    asserts:
+      - hasDocuments: { count: 1 }
+      - containsDocument:
+          kind: Job
+          apiVersion: batch/v1
+
+  - it: cert-manager mode does NOT render the self-signed Job
+    templates: [tls-self-signed-job.yaml]
+    set:
+      tls.mode: cert-manager
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: self-signed mode does NOT render Issuer/Certificate
+    templates: [tls-cert-manager.yaml]
+    set:
+      tls.mode: self-signed
+    asserts:
+      - hasDocuments: { count: 0 }
