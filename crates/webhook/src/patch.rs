@@ -280,4 +280,60 @@ mod tests {
             .iter()
             .all(|x| !x["path"].as_str().unwrap().ends_with("/resources")));
     }
+
+    #[test]
+    fn multi_container_patches_each_non_sidecar() {
+        let pod = pod_with_containers(json!([
+            {"name": "app", "image": "orig:1"},
+            {"name": "audit", "image": "audit:1"}
+        ]));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let imgs: Vec<_> = arr
+            .iter()
+            .filter(|x| x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/image"))
+            .map(|x| x["value"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(imgs, vec!["ghcr.io/test/be:1", "ghcr.io/test/be:1"]);
+    }
+
+    #[test]
+    fn skips_known_sidecar_prefixes() {
+        let pod = pod_with_containers(json!([
+            {"name": "app", "image": "orig:1"},
+            {"name": "istio-proxy", "image": "istio:1"},
+            {"name": "linkerd-init", "image": "linkerd:1"}
+        ]));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let paths: Vec<_> = arr
+            .iter()
+            .filter(|x| x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/image"))
+            .map(|x| x["path"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(paths, vec!["/spec/containers/0/image"]);
+    }
+
+    #[test]
+    fn skips_user_provided_skip_containers() {
+        let cfg = StubbyConfig {
+            skip_containers: vec!["telemetry".into()],
+            ..backend_cfg()
+        };
+        let pod = pod_with_containers(json!([
+            {"name": "app", "image": "orig:1"},
+            {"name": "telemetry", "image": "tel:1"}
+        ]));
+        let ops = build_patch(&pod, &cfg, &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let paths: Vec<_> = arr
+            .iter()
+            .filter(|x| x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/image"))
+            .map(|x| x["path"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(paths, vec!["/spec/containers/0/image"]);
+    }
 }
