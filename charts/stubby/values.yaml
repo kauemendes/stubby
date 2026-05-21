@@ -6,6 +6,9 @@ image:
   tag: ""              # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
+# Optional list of pull secrets if any of the images live in a private registry.
+imagePullSecrets: []
+
 dummyImages:
   backend: ghcr.io/kauemendes/stubby-dummy-backend:0.1.0
   frontend: ghcr.io/kauemendes/stubby-dummy-frontend:0.1.0

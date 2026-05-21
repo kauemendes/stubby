@@ -1,9 +1,15 @@
 {{/* templates/_helpers.tpl */}}
+
+{{/*
+The base name is truncated to 51 chars so that the longest suffix we append
+("-tls-cluster", 12 chars) still fits inside the DNS-1123 label limit of 63.
+Keep this in sync with the longest suffix used in any template.
+*/}}
 {{- define "stubby.fullname" -}}
 {{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- .Values.fullnameOverride | trunc 51 | trimSuffix "-" -}}
 {{- else -}}
-{{- printf "%s" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s" .Release.Name | trunc 51 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
 

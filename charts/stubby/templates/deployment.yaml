@@ -14,23 +14,46 @@ spec:
         stubby.io/type: "off"            # never inject into ourselves
     spec:
       serviceAccountName: {{ include "stubby.fullname" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: webhook
           image: {{ include "stubby.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           env:
             - { name: STUBBY_IMAGE_BACKEND,  value: {{ .Values.dummyImages.backend  | quote }} }
             - { name: STUBBY_IMAGE_FRONTEND, value: {{ .Values.dummyImages.frontend | quote }} }
             - { name: RUST_LOG,              value: {{ .Values.logLevel | quote }} }
-            - { name: STUBBY_LISTEN,         value: "0.0.0.0:8443" }
+            - { name: STUBBY_LISTEN,         value: {{ printf "0.0.0.0:%d" (int .Values.service.targetPort) | quote }} }
           ports:
-            - { containerPort: 8443, name: https }
+            - { containerPort: {{ .Values.service.targetPort }}, name: https }
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
           livenessProbe:
             httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 6
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: tls
