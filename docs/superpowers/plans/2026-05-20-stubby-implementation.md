@@ -868,7 +868,7 @@ Expected: 1 test fails at `unimplemented!()`.
 ```rust
 pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<PatchOperation> {
     use json_patch::{ReplaceOperation, PatchOperation};
-    use jsonptr::PointerBuf;
+    use jsonptr::Pointer;
 
     let containers = pod
         .spec
@@ -882,7 +882,7 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             continue;
         }
         let image = chosen_image(cfg, imgs);
-        let path = PointerBuf::parse(&format!("/spec/containers/{i}/image")).unwrap();
+        let path = Pointer::parse(&format!("/spec/containers/{i}/image")).unwrap();
         ops.push(PatchOperation::Replace(ReplaceOperation {
             path,
             value: serde_json::Value::String(image),
@@ -907,11 +907,7 @@ fn chosen_image(cfg: &StubbyConfig, imgs: &ImageRefs) -> String {
 }
 ```
 
-Add deps in `crates/webhook/Cargo.toml`:
-
-```toml
-jsonptr = "0.6"
-```
+No new direct dep — `jsonptr 0.4` is already available transitively via `json-patch 2.x`.
 
 - [ ] **Step 6: Run tests; verify pass**
 
@@ -1094,31 +1090,31 @@ for (i, c) in containers.iter().enumerate() {
 }
 ```
 
-Add helper fns at module level:
+Add helper fns at module level. We construct `PatchOperation` values via `serde_json::from_value` to avoid naming the transitive `jsonptr` crate directly — Task 2.1 established this idiom because `json-patch 2.x` does not re-export `jsonptr` and depending on its name from outside is fragile.
 
 ```rust
 fn replace_op(path: &str, value: serde_json::Value) -> PatchOperation {
-    use json_patch::ReplaceOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Replace(ReplaceOperation {
-        path: PointerBuf::parse(path).unwrap(),
-        value,
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "replace",
+        "path": path,
+        "value": value,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 fn add_op(path: &str, value: serde_json::Value) -> PatchOperation {
-    use json_patch::AddOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Add(AddOperation {
-        path: PointerBuf::parse(path).unwrap(),
-        value,
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "add",
+        "path": path,
+        "value": value,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 fn remove_op(path: &str) -> PatchOperation {
-    use json_patch::RemoveOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Remove(RemoveOperation {
-        path: PointerBuf::parse(path).unwrap(),
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "remove",
+        "path": path,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 ```
 
