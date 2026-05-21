@@ -1,0 +1,25 @@
+# Build artifacts that bloat the Docker context and bust BuildKit's cache.
+target/
+**/target/
+
+# VCS / editor / OS junk.
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docs and meta — never needed inside the build context.
+docs/
+*.md
+LICENSE
+
+# Helm chart and examples — packaged separately, not by docker build.
+charts/
+examples/
+test/
+
+# Memory / plan scratch space if anything leaks in.
+.claude/
