@@ -1841,7 +1841,7 @@ git commit -m "feat(webhook): expose Prometheus /metrics endpoint and admission 
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /src
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -2072,7 +2072,7 @@ git commit -m "feat(dummy-backend): health, ready, openapi, docs, and catch-all 
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /src
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates
