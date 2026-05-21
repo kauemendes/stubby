@@ -29,6 +29,11 @@ async fn openapi(State(cfg): State<BackendConfig>) -> impl IntoResponse {
 }
 
 async fn docs() -> impl IntoResponse {
+    // Known limitation: swagger-ui assets load from jsdelivr's CDN, so /docs
+    // does not work in air-gapped clusters. For v1 we accept this — vendoring
+    // ~200KB of swagger-ui-dist into a "dummy" image is disproportionate.
+    // Air-gapped users should consume /openapi.json directly (see
+    // docs/troubleshooting.md when Task 11.1 lands).
     let html = r#"<!doctype html><html><head><title>stubby docs</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
 </head><body><div id="swagger"></div>
@@ -42,6 +47,9 @@ async fn docs() -> impl IntoResponse {
     )
 }
 
+/// Returns HTTP 200 for any unmatched path. Intentional for a "dummy"
+/// service: clients integrating against a not-yet-built backend benefit from
+/// a structured "I'm a dummy" JSON over a generic 404 during scaffolding.
 async fn catchall(
     State(cfg): State<BackendConfig>,
     req: axum::http::Request<axum::body::Body>,
