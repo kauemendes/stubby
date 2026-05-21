@@ -24,9 +24,21 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(|| async { "ok" }))
+        .route("/metrics", get(metrics_handler))
         .route("/mutate", post(mutate))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
+}
+
+async fn metrics_handler() -> impl IntoResponse {
+    (StatusCode::OK, crate::observability::render())
+}
+
+fn classify(r: &AdmissionReview) -> (&'static str, &'static str) {
+    match r.response.as_ref().and_then(|x| x.patch.as_ref()) {
+        Some(_) => ("inject", "pod"),
+        None => ("skip", "pod"),
+    }
 }
 
 /// Admission webhooks must always reply with HTTP 200 carrying an
@@ -51,10 +63,14 @@ async fn mutate(State(state): State<AppState>, body: Bytes) -> impl IntoResponse
                     }),
                 }),
             };
+            let (decision, kind) = classify(&synthetic);
+            crate::observability::record_admission(decision, kind);
             return (StatusCode::OK, Json(synthetic));
         }
     };
     let out = handle(review, state.image_refs.as_ref());
+    let (decision, kind) = classify(&out);
+    crate::observability::record_admission(decision, kind);
     (StatusCode::OK, Json(out))
 }
 
@@ -144,6 +160,27 @@ mod tests {
         assert_eq!(v["response"]["uid"], "abc");
         assert_eq!(v["response"]["allowed"], true);
         assert!(v["response"]["patch"].is_string());
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_responds_after_init() {
+        crate::observability::init_metrics();
+        let app = router(state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = body_bytes(resp).await;
+        let text = std::str::from_utf8(&bytes).unwrap();
+        // The exporter renders an empty body until a counter increments; just
+        // assert that the endpoint is wired and 200s.
+        assert!(text.is_empty() || text.contains("stubby_admissions_total"));
     }
 
     #[tokio::test]

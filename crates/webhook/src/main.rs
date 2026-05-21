@@ -30,6 +30,8 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    stubby_webhook::observability::init_metrics();
+
     let raw_listen = std::env::var("STUBBY_LISTEN").unwrap_or_else(|_| "0.0.0.0:8443".into());
     let addr: SocketAddr = raw_listen.parse().with_context(|| {
         format!("STUBBY_LISTEN={raw_listen:?} is not a valid <host>:<port> SocketAddr")
