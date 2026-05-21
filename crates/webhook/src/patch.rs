@@ -26,8 +26,10 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             serde_json::Value::String(image),
         ));
 
-        // ports
-        ops.push(replace_op(
+        // ports — `add` creates the field if absent (RFC 6902 §4.1) which is
+        // the common case for stubby-targeted Deployments; if the operator
+        // had ports defined, `add` replaces them, matching our intent.
+        ops.push(add_op(
             &format!("{base}/ports"),
             serde_json::json!([{
                 "containerPort": cfg.port,
@@ -36,8 +38,8 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             }]),
         ));
 
-        // liveness probe
-        ops.push(replace_op(
+        // liveness probe — `add` for same reason as ports
+        ops.push(add_op(
             &format!("{base}/livenessProbe"),
             serde_json::json!({
                 "httpGet": {"path": "/health", "port": cfg.port},
@@ -46,8 +48,8 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             }),
         ));
 
-        // readiness probe
-        ops.push(replace_op(
+        // readiness probe — `add` for same reason as ports
+        ops.push(add_op(
             &format!("{base}/readinessProbe"),
             serde_json::json!({
                 "httpGet": {"path": "/ready", "port": cfg.port},
@@ -205,18 +207,18 @@ mod tests {
         };
 
         assert!(find("replace", "/image").is_some());
-        assert!(find("replace", "/ports").is_some(), "ports not patched");
-        let ports = find("replace", "/ports").unwrap()["value"].clone();
+        assert!(find("add", "/ports").is_some(), "ports not patched");
+        let ports = find("add", "/ports").unwrap()["value"].clone();
         assert_eq!(
             ports,
             json!([{"containerPort": 8080, "name": "http", "protocol": "TCP"}])
         );
 
-        let lp = find("replace", "/livenessProbe").unwrap()["value"].clone();
+        let lp = find("add", "/livenessProbe").unwrap()["value"].clone();
         assert_eq!(lp["httpGet"]["path"], "/health");
         assert_eq!(lp["httpGet"]["port"], 8080);
 
-        let rp = find("replace", "/readinessProbe").unwrap()["value"].clone();
+        let rp = find("add", "/readinessProbe").unwrap()["value"].clone();
         assert_eq!(rp["httpGet"]["path"], "/ready");
         assert_eq!(rp["httpGet"]["port"], 8080);
 
@@ -244,9 +246,7 @@ mod tests {
         let arr = j.as_array().unwrap();
         let lp = arr
             .iter()
-            .find(|x| {
-                x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/livenessProbe")
-            })
+            .find(|x| x["op"] == "add" && x["path"].as_str().unwrap().ends_with("/livenessProbe"))
             .unwrap();
         assert_eq!(lp["value"]["httpGet"]["port"], 80);
     }

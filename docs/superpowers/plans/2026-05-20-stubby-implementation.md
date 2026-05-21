@@ -972,15 +972,15 @@ fn backend_replaces_ports_probes_env_and_removes_command() {
     };
 
     assert!(find("replace", "/image").is_some());
-    assert!(find("replace", "/ports").is_some(), "ports not patched");
-    let ports = find("replace", "/ports").unwrap()["value"].clone();
+    assert!(find("add", "/ports").is_some(), "ports not patched");
+    let ports = find("add", "/ports").unwrap()["value"].clone();
     assert_eq!(ports, json!([{"containerPort": 8080, "name": "http", "protocol": "TCP"}]));
 
-    let lp = find("replace", "/livenessProbe").unwrap()["value"].clone();
+    let lp = find("add", "/livenessProbe").unwrap()["value"].clone();
     assert_eq!(lp["httpGet"]["path"], "/health");
     assert_eq!(lp["httpGet"]["port"], 8080);
 
-    let rp = find("replace", "/readinessProbe").unwrap()["value"].clone();
+    let rp = find("add", "/readinessProbe").unwrap()["value"].clone();
     assert_eq!(rp["httpGet"]["path"], "/ready");
     assert_eq!(rp["httpGet"]["port"], 8080);
 
@@ -1007,7 +1007,7 @@ fn frontend_uses_port_80_by_default() {
     let j = ops_to_json(&ops);
     let arr = j.as_array().unwrap();
     let lp = arr.iter().find(|x|
-        x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/livenessProbe")
+        x["op"] == "add" && x["path"].as_str().unwrap().ends_with("/livenessProbe")
     ).unwrap();
     assert_eq!(lp["value"]["httpGet"]["port"], 80);
 }
@@ -1060,20 +1060,24 @@ for (i, c) in containers.iter().enumerate() {
     // image
     ops.push(replace_op(&format!("{base}/image"), serde_json::Value::String(image)));
 
-    // ports
-    ops.push(replace_op(&format!("{base}/ports"), serde_json::json!([{
+    // ports — use `add` so the op succeeds whether or not the container
+    // already declared ports (RFC 6902 §4.1: `add` to a missing field
+    // creates it; to an existing field, replaces it). `replace` would
+    // fail for the common case where the dev's manifest has no ports.
+    ops.push(add_op(&format!("{base}/ports"), serde_json::json!([{
         "containerPort": cfg.port,
         "name": "http",
         "protocol": "TCP"
     }])));
 
-    // probes
-    ops.push(replace_op(&format!("{base}/livenessProbe"), serde_json::json!({
+    // probes — same RFC 6902 reasoning: use `add` so missing probes
+    // don't make the patch fail.
+    ops.push(add_op(&format!("{base}/livenessProbe"), serde_json::json!({
         "httpGet": {"path": "/health", "port": cfg.port},
         "initialDelaySeconds": 1,
         "periodSeconds": 10
     })));
-    ops.push(replace_op(&format!("{base}/readinessProbe"), serde_json::json!({
+    ops.push(add_op(&format!("{base}/readinessProbe"), serde_json::json!({
         "httpGet": {"path": "/ready", "port": cfg.port},
         "initialDelaySeconds": 1,
         "periodSeconds": 5
