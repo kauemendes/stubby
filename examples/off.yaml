@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: real-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: real-app
+  template:
+    metadata:
+      labels:
+        app: real-app
+      annotations:
+        stubby.io/type: "off"
+    spec:
+      containers:
+        - name: real
+          image: nginx:1.27-alpine

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders-api
+  template:
+    metadata:
+      labels:
+        app: orders-api
+      annotations:
+        stubby.io/type: backend
+        stubby.io/app-name: "Orders API"
+    spec:
+      containers:
+        - name: orders
+          image: ghcr.io/example/orders-api:notbuilt
+          ports:
+            - containerPort: 9999    # replaced by the webhook
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  selector:
+    app: orders-api
+  ports:
+    - port: 8080
+      targetPort: http

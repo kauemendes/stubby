@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storefront
+  template:
+    metadata:
+      labels:
+        app: storefront
+      annotations:
+        stubby.io/type: frontend
+        stubby.io/app-name: "Storefront"
+    spec:
+      containers:
+        - name: site
+          image: ghcr.io/example/storefront:notbuilt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront
+spec:
+  selector:
+    app: storefront
+  ports:
+    - port: 80
+      targetPort: http
