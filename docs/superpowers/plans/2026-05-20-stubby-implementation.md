@@ -775,7 +775,11 @@ pub mod patch;
 
 - [ ] **Step 2: Write `crates/webhook/src/config.rs`**
 
+Both `STUBBY_IMAGE_BACKEND` and `STUBBY_IMAGE_FRONTEND` are **required** and must point to fully qualified, pinned image refs (e.g. `ghcr.io/org/stubby-dummy-backend:v0.1.0`). The webhook fails fast at startup if either is missing or blank — better than silently injecting `:latest` into a cluster. The Helm chart's `deployment.yaml` (Task 8.2) sets these env vars from `values.yaml`.
+
 ```rust
+use anyhow::Context;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRefs {
     pub backend: String,
@@ -783,16 +787,27 @@ pub struct ImageRefs {
 }
 
 impl ImageRefs {
+    /// Reads `STUBBY_IMAGE_BACKEND` and `STUBBY_IMAGE_FRONTEND` from the environment.
+    /// Both are required and must be non-empty (whitespace is trimmed).
+    /// Errors are surfaced to the binary's `main` so misconfigured deployments
+    /// fail fast at startup instead of injecting a useless placeholder.
     pub fn from_env() -> anyhow::Result<Self> {
-        Ok(Self {
-            backend: std::env::var("STUBBY_IMAGE_BACKEND")
-                .unwrap_or_else(|_| "ghcr.io/kauemendes/stubby-dummy-backend:latest".into()),
-            frontend: std::env::var("STUBBY_IMAGE_FRONTEND")
-                .unwrap_or_else(|_| "ghcr.io/kauemendes/stubby-dummy-frontend:latest".into()),
-        })
+        let backend = required_env("STUBBY_IMAGE_BACKEND")?;
+        let frontend = required_env("STUBBY_IMAGE_FRONTEND")?;
+        Ok(Self { backend, frontend })
     }
 }
+
+fn required_env(key: &str) -> anyhow::Result<String> {
+    let raw = std::env::var(key)
+        .with_context(|| format!("{key} must be set to a fully qualified image ref"))?;
+    let trimmed = raw.trim();
+    anyhow::ensure!(!trimmed.is_empty(), "{key} must not be empty");
+    Ok(trimmed.to_string())
+}
 ```
+
+Coverage for the env contract is deferred to the integration test in Task 9.2 (the kind cluster sets both env vars via the chart, so a regression here surfaces as a startup failure). We avoid unit tests that mutate process env because they race with the parallel default of `cargo test`.
 
 - [ ] **Step 3: Write failing tests in `crates/webhook/src/patch.rs`**
 
