@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest a new annotation, injected field, chart value, observability hook, or any other capability.
+title: "[feat]: <one-line summary>"
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For non-trivial changes (new annotation, new injected field,
+        breaking chart change) we prefer to agree on shape before code
+        is written. Use this template to start that conversation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the user-visible behaviour you wish stubby had, and the situation that surfaces the need. Concrete examples > abstract requirements.
+      placeholder: "When I annotate a pod with stubby.io/type=frontend, I'd like the dummy frontend to embed a custom favicon …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What change do you have in mind?
+      description: A sketch of the API or chart-value surface — annotation name, value type, default, where it shows up in the rendered pod. Pseudocode is fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried with the current version, or different ways to model the same feature.
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: Is this a breaking change?
+      options:
+        - "No"
+        - "Possibly"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: textarea
+    id: misc
+    attributes:
+      label: Anything else
