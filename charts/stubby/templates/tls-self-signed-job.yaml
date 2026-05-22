@@ -24,7 +24,11 @@ spec:
           image: {{ .Values.tls.selfSigned.image }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem is intentionally omitted: the bootstrap
+            # image (alpine/openssl) does not ship curl or jq, so the script
+            # `apk add`s them at runtime, which writes to /var/cache/apk and
+            # friends. Risk is bounded — the Job is one-shot (TTL 300s),
+            # runs non-root with no caps and seccomp=RuntimeDefault.
             capabilities:
               drop: [ALL]
           volumeMounts:

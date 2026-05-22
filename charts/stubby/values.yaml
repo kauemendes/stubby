@@ -38,7 +38,9 @@ tls:
       kind: Issuer
       name: stubby-selfsigned
   selfSigned:
-    image: alpine/openssl:3.3
+    # Must be a fully-pinned tag — alpine/openssl does not publish rolling
+    # minor tags (e.g. "3.3" does not exist; only "3.3.0"…"3.3.3" do).
+    image: alpine/openssl:3.3.3
     validityDays: 365
 
 resources:
