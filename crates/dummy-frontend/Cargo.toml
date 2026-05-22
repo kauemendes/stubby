@@ -1,0 +1,19 @@
+[package]
+name = "stubby-dummy-frontend"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# (runtime currently has no fallible IO; render_index returns String)
+
+[build-dependencies]
+anyhow.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

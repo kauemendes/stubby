@@ -1,0 +1,21 @@
+{{- if eq .Values.tls.mode "cert-manager" }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Values.tls.certManager.issuerRef.name }}
+  labels: {{- include "stubby.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "stubby.fullname" . }}
+  labels: {{- include "stubby.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "stubby.fullname" . }}-tls
+  issuerRef: {{- toYaml .Values.tls.certManager.issuerRef | nindent 4 }}
+  dnsNames:
+    - {{ include "stubby.fullname" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "stubby.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}

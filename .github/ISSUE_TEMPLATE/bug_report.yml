@@ -1,0 +1,100 @@
+name: Bug report
+description: stubby misbehaved — webhook returned an unexpected patch, pods stayed Pending, install failed, anything else off the happy path.
+title: "[bug]: <one-line summary>"
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in the
+        sections below — they map directly to the questions a reviewer
+        will ask. A reproducer beats a great prose description.
+
+        **Security issue?** Don't open this — see
+        [SECURITY.md](../../SECURITY.md) for private disclosure.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A short, factual description of the misbehaviour.
+      placeholder: "After helm install the webhook pod stays in CrashLoopBackOff …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: "I expected the pod to become Ready within 10s, with /metrics returning HTTP 200 …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: The smallest possible recipe — annotated YAML, helm values, kubectl commands.
+      placeholder: |
+        ```yaml
+        apiVersion: apps/v1
+        kind: Deployment
+        ...
+        ```
+
+        ```bash
+        helm upgrade --install stubby ... --set tls.mode=self-signed
+        kubectl apply -f bug.yaml
+        ```
+      render: bash
+    validations:
+      required: true
+
+  - type: input
+    id: chart_version
+    attributes:
+      label: Chart version
+      description: "`helm list -n stubby-system -o yaml`"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: image_version
+    attributes:
+      label: Webhook image tag
+      placeholder: "ghcr.io/kauemendes/stubby-webhook:0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: kube_version
+    attributes:
+      label: Kubernetes server version
+      description: "`kubectl version -o yaml | yq '.serverVersion.gitVersion'`"
+      placeholder: "v1.31.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tls_mode
+    attributes:
+      label: TLS mode
+      options:
+        - self-signed
+        - cert-manager
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Output of `kubectl logs -n stubby-system -l app.kubernetes.io/name=stubby --tail=200`. Redact anything sensitive."
+      render: text
+
+  - type: textarea
+    id: other
+    attributes:
+      label: Anything else
+      description: "Cluster type (kind/minikube/EKS/GKE/AKS/on-prem), CNI, recent changes, …"

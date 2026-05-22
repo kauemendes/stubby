@@ -7,7 +7,7 @@
 **Architecture:** Cargo workspace with three crates (`webhook`, `dummy-backend`, `dummy-frontend`). Webhook implements `AdmissionReview/v1`, returns a JSONPatch that rewrites `image`, `ports`, probes, `command`, `args`, `env`. Dummy images are distroless Rust binary (backend) and `nginx:alpine` (frontend). Helm chart bundles `MutatingWebhookConfiguration`, RBAC, Deployment, Service, and TLS bootstrap (cert-manager or self-signed Job).
 
 **Tech Stack:**
-- **Rust** (stable, pinned via `rust-toolchain.toml`)
+- **Rust** 1.85.0 (pinned via `rust-toolchain.toml`; required minimum because some transitive dependencies use Rust edition 2024)
 - **axum 0.7** — HTTP framework (both webhook and dummy-backend)
 - **kube 0.96** + **k8s-openapi 0.23** (feature `v1_30`) — Kubernetes API types
 - **tokio 1.x** — async runtime
@@ -192,7 +192,7 @@ pub const ALWAYS_SKIP_PREFIXES: &[&str] = &["istio-", "linkerd-", "vault-", "cil
 
 ```toml
 [toolchain]
-channel = "1.83.0"
+channel = "1.85.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
 ```
@@ -210,7 +210,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/kauemendes/stubby"
 authors = ["Kauê Mendes"]
@@ -336,6 +336,7 @@ git commit -m "chore: bootstrap cargo workspace and project metadata"
 - Create: `crates/webhook/src/main.rs`
 - Create: `crates/dummy-backend/Cargo.toml`
 - Create: `crates/dummy-backend/src/main.rs`
+- Create: `crates/dummy-backend/src/lib.rs`
 - Create: `crates/dummy-frontend/Cargo.toml`
 - Create: `crates/dummy-frontend/build.rs`
 - Create: `crates/dummy-frontend/src/lib.rs`
@@ -401,6 +402,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "stubby-dummy-backend"
 path = "src/main.rs"
@@ -424,7 +428,17 @@ fn main() {
 }
 ```
 
+- [ ] **Step 5b: Write `crates/dummy-backend/src/lib.rs` (empty placeholder)**
+
+The Cargo.toml declares `[lib] path = "src/lib.rs"` so the file must exist for the crate to compile. Later tasks (e.g. dummy backend routes) will re-export modules from here.
+
+```rust
+// Re-exports added in later tasks.
+```
+
 - [ ] **Step 6: Write `crates/dummy-frontend/Cargo.toml`**
+
+`render_index` returns `String` (no fallible IO), so the runtime crate intentionally carries no `anyhow` dependency. `build.rs` may grow fallible logic later (template generation in Task 7.1), so `anyhow` stays in `[build-dependencies]`.
 
 ```toml
 [package]
@@ -439,7 +453,7 @@ build = "build.rs"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow.workspace = true
+# (runtime currently has no fallible IO; render_index returns String)
 
 [build-dependencies]
 anyhow.workspace = true
@@ -761,7 +775,11 @@ pub mod patch;
 
 - [ ] **Step 2: Write `crates/webhook/src/config.rs`**
 
+Both `STUBBY_IMAGE_BACKEND` and `STUBBY_IMAGE_FRONTEND` are **required** and must point to fully qualified, pinned image refs (e.g. `ghcr.io/org/stubby-dummy-backend:v0.1.0`). The webhook fails fast at startup if either is missing or blank — better than silently injecting `:latest` into a cluster. The Helm chart's `deployment.yaml` (Task 8.2) sets these env vars from `values.yaml`.
+
 ```rust
+use anyhow::Context;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRefs {
     pub backend: String,
@@ -769,16 +787,27 @@ pub struct ImageRefs {
 }
 
 impl ImageRefs {
+    /// Reads `STUBBY_IMAGE_BACKEND` and `STUBBY_IMAGE_FRONTEND` from the environment.
+    /// Both are required and must be non-empty (whitespace is trimmed).
+    /// Errors are surfaced to the binary's `main` so misconfigured deployments
+    /// fail fast at startup instead of injecting a useless placeholder.
     pub fn from_env() -> anyhow::Result<Self> {
-        Ok(Self {
-            backend: std::env::var("STUBBY_IMAGE_BACKEND")
-                .unwrap_or_else(|_| "ghcr.io/kauemendes/stubby-dummy-backend:latest".into()),
-            frontend: std::env::var("STUBBY_IMAGE_FRONTEND")
-                .unwrap_or_else(|_| "ghcr.io/kauemendes/stubby-dummy-frontend:latest".into()),
-        })
+        let backend = required_env("STUBBY_IMAGE_BACKEND")?;
+        let frontend = required_env("STUBBY_IMAGE_FRONTEND")?;
+        Ok(Self { backend, frontend })
     }
 }
+
+fn required_env(key: &str) -> anyhow::Result<String> {
+    let raw = std::env::var(key)
+        .with_context(|| format!("{key} must be set to a fully qualified image ref"))?;
+    let trimmed = raw.trim();
+    anyhow::ensure!(!trimmed.is_empty(), "{key} must not be empty");
+    Ok(trimmed.to_string())
+}
 ```
+
+Coverage for the env contract is deferred to the integration test in Task 9.2 (the kind cluster sets both env vars via the chart, so a regression here surfaces as a startup failure). We avoid unit tests that mutate process env because they race with the parallel default of `cargo test`.
 
 - [ ] **Step 3: Write failing tests in `crates/webhook/src/patch.rs`**
 
@@ -854,7 +883,7 @@ Expected: 1 test fails at `unimplemented!()`.
 ```rust
 pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<PatchOperation> {
     use json_patch::{ReplaceOperation, PatchOperation};
-    use jsonptr::PointerBuf;
+    use jsonptr::Pointer;
 
     let containers = pod
         .spec
@@ -868,7 +897,7 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             continue;
         }
         let image = chosen_image(cfg, imgs);
-        let path = PointerBuf::parse(&format!("/spec/containers/{i}/image")).unwrap();
+        let path = Pointer::parse(&format!("/spec/containers/{i}/image")).unwrap();
         ops.push(PatchOperation::Replace(ReplaceOperation {
             path,
             value: serde_json::Value::String(image),
@@ -893,11 +922,7 @@ fn chosen_image(cfg: &StubbyConfig, imgs: &ImageRefs) -> String {
 }
 ```
 
-Add deps in `crates/webhook/Cargo.toml`:
-
-```toml
-jsonptr = "0.6"
-```
+No new direct dep — `jsonptr 0.4` is already available transitively via `json-patch 2.x`.
 
 - [ ] **Step 6: Run tests; verify pass**
 
@@ -947,15 +972,15 @@ fn backend_replaces_ports_probes_env_and_removes_command() {
     };
 
     assert!(find("replace", "/image").is_some());
-    assert!(find("replace", "/ports").is_some(), "ports not patched");
-    let ports = find("replace", "/ports").unwrap()["value"].clone();
+    assert!(find("add", "/ports").is_some(), "ports not patched");
+    let ports = find("add", "/ports").unwrap()["value"].clone();
     assert_eq!(ports, json!([{"containerPort": 8080, "name": "http", "protocol": "TCP"}]));
 
-    let lp = find("replace", "/livenessProbe").unwrap()["value"].clone();
+    let lp = find("add", "/livenessProbe").unwrap()["value"].clone();
     assert_eq!(lp["httpGet"]["path"], "/health");
     assert_eq!(lp["httpGet"]["port"], 8080);
 
-    let rp = find("replace", "/readinessProbe").unwrap()["value"].clone();
+    let rp = find("add", "/readinessProbe").unwrap()["value"].clone();
     assert_eq!(rp["httpGet"]["path"], "/ready");
     assert_eq!(rp["httpGet"]["port"], 8080);
 
@@ -982,7 +1007,7 @@ fn frontend_uses_port_80_by_default() {
     let j = ops_to_json(&ops);
     let arr = j.as_array().unwrap();
     let lp = arr.iter().find(|x|
-        x["op"] == "replace" && x["path"].as_str().unwrap().ends_with("/livenessProbe")
+        x["op"] == "add" && x["path"].as_str().unwrap().ends_with("/livenessProbe")
     ).unwrap();
     assert_eq!(lp["value"]["httpGet"]["port"], 80);
 }
@@ -1035,20 +1060,24 @@ for (i, c) in containers.iter().enumerate() {
     // image
     ops.push(replace_op(&format!("{base}/image"), serde_json::Value::String(image)));
 
-    // ports
-    ops.push(replace_op(&format!("{base}/ports"), serde_json::json!([{
+    // ports — use `add` so the op succeeds whether or not the container
+    // already declared ports (RFC 6902 §4.1: `add` to a missing field
+    // creates it; to an existing field, replaces it). `replace` would
+    // fail for the common case where the dev's manifest has no ports.
+    ops.push(add_op(&format!("{base}/ports"), serde_json::json!([{
         "containerPort": cfg.port,
         "name": "http",
         "protocol": "TCP"
     }])));
 
-    // probes
-    ops.push(replace_op(&format!("{base}/livenessProbe"), serde_json::json!({
+    // probes — same RFC 6902 reasoning: use `add` so missing probes
+    // don't make the patch fail.
+    ops.push(add_op(&format!("{base}/livenessProbe"), serde_json::json!({
         "httpGet": {"path": "/health", "port": cfg.port},
         "initialDelaySeconds": 1,
         "periodSeconds": 10
     })));
-    ops.push(replace_op(&format!("{base}/readinessProbe"), serde_json::json!({
+    ops.push(add_op(&format!("{base}/readinessProbe"), serde_json::json!({
         "httpGet": {"path": "/ready", "port": cfg.port},
         "initialDelaySeconds": 1,
         "periodSeconds": 5
@@ -1080,31 +1109,31 @@ for (i, c) in containers.iter().enumerate() {
 }
 ```
 
-Add helper fns at module level:
+Add helper fns at module level. We construct `PatchOperation` values via `serde_json::from_value` to avoid naming the transitive `jsonptr` crate directly — Task 2.1 established this idiom because `json-patch 2.x` does not re-export `jsonptr` and depending on its name from outside is fragile.
 
 ```rust
 fn replace_op(path: &str, value: serde_json::Value) -> PatchOperation {
-    use json_patch::ReplaceOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Replace(ReplaceOperation {
-        path: PointerBuf::parse(path).unwrap(),
-        value,
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "replace",
+        "path": path,
+        "value": value,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 fn add_op(path: &str, value: serde_json::Value) -> PatchOperation {
-    use json_patch::AddOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Add(AddOperation {
-        path: PointerBuf::parse(path).unwrap(),
-        value,
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "add",
+        "path": path,
+        "value": value,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 fn remove_op(path: &str) -> PatchOperation {
-    use json_patch::RemoveOperation;
-    use jsonptr::PointerBuf;
-    PatchOperation::Remove(RemoveOperation {
-        path: PointerBuf::parse(path).unwrap(),
-    })
+    serde_json::from_value(serde_json::json!({
+        "op": "remove",
+        "path": path,
+    }))
+    .expect("hard-coded JSON Patch op is well-formed")
 }
 ```
 
@@ -1292,6 +1321,15 @@ pub struct AdmissionResponse {
     pub patch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_type: Option<String>,
+    /// Optional v1 status — used to surface diagnostics (e.g. a failed Pod
+    /// decode) back to the API server so they appear in audit logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<AdmissionStatus>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AdmissionStatus {
+    pub message: String,
 }
 
 pub fn handle(review: AdmissionReview, imgs: &ImageRefs) -> AdmissionReview {
@@ -1841,7 +1879,7 @@ git commit -m "feat(webhook): expose Prometheus /metrics endpoint and admission 
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /src
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -2072,7 +2110,7 @@ git commit -m "feat(dummy-backend): health, ready, openapi, docs, and catch-all 
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /src
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates

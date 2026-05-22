@@ -1,0 +1,38 @@
+suite: tls
+tests:
+  - it: cert-manager mode renders Issuer + Certificate
+    templates: [tls-cert-manager.yaml]
+    set:
+      tls.mode: cert-manager
+    asserts:
+      - hasDocuments: { count: 2 }
+      - containsDocument:
+          kind: Issuer
+          apiVersion: cert-manager.io/v1
+        documentIndex: 0
+      - containsDocument:
+          kind: Certificate
+          apiVersion: cert-manager.io/v1
+        documentIndex: 1
+
+  - it: self-signed mode renders an inline kubernetes.io/tls Secret
+    templates: [mutatingwebhookconfiguration.yaml]
+    set:
+      tls.mode: self-signed
+    asserts:
+      - hasDocuments: { count: 2 }
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+        documentIndex: 0
+      - equal:
+          path: type
+          value: kubernetes.io/tls
+        documentIndex: 0
+
+  - it: self-signed mode does NOT render Issuer/Certificate
+    templates: [tls-cert-manager.yaml]
+    set:
+      tls.mode: self-signed
+    asserts:
+      - hasDocuments: { count: 0 }

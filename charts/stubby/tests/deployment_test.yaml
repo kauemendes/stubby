@@ -1,0 +1,37 @@
+suite: deployment
+templates:
+  - deployment.yaml
+tests:
+  - it: sets default replicas
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: mounts the tls secret
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls
+            secret:
+              secretName: RELEASE-NAME-tls
+
+  - it: pins itself out of admission with stubby.io/type=off
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["stubby.io/type"]
+          value: "off"
+
+  - it: sets STUBBY_IMAGE_BACKEND and STUBBY_IMAGE_FRONTEND
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: STUBBY_IMAGE_BACKEND
+            value: ghcr.io/kauemendes/stubby-dummy-backend:0.1.0
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: STUBBY_IMAGE_FRONTEND
+            value: ghcr.io/kauemendes/stubby-dummy-frontend:0.1.0

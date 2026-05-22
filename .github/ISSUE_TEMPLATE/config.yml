@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/kauemendes/stubby/security/advisories/new
+    about: Don't open a public issue for security bugs — file a private GitHub Security Advisory instead.
+  - name: Documentation question
+    url: https://github.com/kauemendes/stubby/discussions
+    about: For "how do I …" questions, please use Discussions. Reserve issues for code or behaviour changes.

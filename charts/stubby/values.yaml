@@ -1,0 +1,51 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/kauemendes/stubby-webhook
+  tag: ""              # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Optional list of pull secrets if any of the images live in a private registry.
+imagePullSecrets: []
+
+dummyImages:
+  backend: ghcr.io/kauemendes/stubby-dummy-backend:0.1.0
+  frontend: ghcr.io/kauemendes/stubby-dummy-frontend:0.1.0
+
+replicaCount: 2
+
+service:
+  port: 443
+  targetPort: 8443
+
+webhook:
+  failurePolicy: Ignore
+  reinvocationPolicy: Never
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: [kube-system]
+      - key: stubby.io/exclude
+        operator: NotIn
+        values: ["true"]
+
+tls:
+  mode: self-signed     # one of: self-signed, cert-manager
+  certManager:
+    issuerRef:
+      kind: Issuer
+      name: stubby-selfsigned
+  selfSigned:
+    # CA + leaf cert are generated at template time using `genCA` /
+    # `genSignedCert`. `lookup` pins the cert across upgrades by reading
+    # back the existing Secret, so this value is honoured only on the
+    # very first install.
+    validityDays: 3650
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits:   { cpu: 200m, memory: 128Mi }
+
+logLevel: info
