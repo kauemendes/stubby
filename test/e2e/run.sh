@@ -13,6 +13,8 @@ NS=stubby-system
 WEBHOOK_IMG=local/stubby-webhook:e2e
 BACKEND_IMG=local/stubby-dummy-backend:e2e
 FRONTEND_IMG=local/stubby-dummy-frontend:e2e
+# Exported so case scripts (test/e2e/cases/*.sh) can use the same value.
+export CURL_IMG=${CURL_IMG:-curlimages/curl:8}
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
@@ -27,10 +29,16 @@ docker build -f docker/webhook.Dockerfile        -t "$WEBHOOK_IMG"  .
 docker build -f docker/dummy-backend.Dockerfile  -t "$BACKEND_IMG"  .
 docker build -f docker/dummy-frontend.Dockerfile -t "$FRONTEND_IMG" .
 
+# Case scripts use curlimages/curl:8 to probe Services. Pre-pull it so the
+# transient `kubectl run` pod doesn't race the docker.io pull against
+# kubectl's 1-minute attach timeout.
+docker pull "$CURL_IMG" >/dev/null
+
 echo "==> loading images into kind"
 kind load docker-image "$WEBHOOK_IMG"  --name "$CLUSTER"
 kind load docker-image "$BACKEND_IMG"  --name "$CLUSTER"
 kind load docker-image "$FRONTEND_IMG" --name "$CLUSTER"
+kind load docker-image "$CURL_IMG"     --name "$CLUSTER"
 
 echo "==> installing chart"
 kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"

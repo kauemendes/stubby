@@ -17,8 +17,10 @@ if [[ "$IMG" != "local/stubby-dummy-frontend:e2e" ]]; then
   exit 1
 fi
 
-kubectl run curl-fe --rm -i --image=curlimages/curl:8 --restart=Never -n "$NS" -- \
-  curl -sf --max-time 10 http://storefront.default.svc:80/ \
+kubectl run curl-fe --rm -i --restart=Never -n "$NS" \
+  --image="${CURL_IMG:-curlimages/curl:8}" \
+  --image-pull-policy=IfNotPresent \
+  -- curl -sf --max-time 10 http://storefront.default.svc:80/ \
   | grep -q 'Storefront'
 
 echo "frontend OK ($IMG)"

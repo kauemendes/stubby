@@ -16,8 +16,10 @@ if [[ "$IMG" != "local/stubby-dummy-backend:e2e" ]]; then
   exit 1
 fi
 
-kubectl run curl-be --rm -i --image=curlimages/curl:8 --restart=Never -n "$NS" -- \
-  curl -sf --max-time 10 http://orders-api.default.svc:8080/health \
+kubectl run curl-be --rm -i --restart=Never -n "$NS" \
+  --image="${CURL_IMG:-curlimages/curl:8}" \
+  --image-pull-policy=IfNotPresent \
+  -- curl -sf --max-time 10 http://orders-api.default.svc:8080/health \
   | grep -q ok
 
 echo "backend OK ($IMG)"
