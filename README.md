@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="stubby logo" width="120">
+</p>
+
 <h1 align="center">stubby</h1>
 
 <p align="center">
