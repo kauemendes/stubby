@@ -1,11 +1,25 @@
+//! Parsing of the `stubby.io/*` annotation set off a pod's metadata.
+//!
+//! [`parse_annotations`] turns the raw annotation map into a [`Decision`]:
+//! either inject the dummy (with a fully-resolved [`StubbyConfig`]) or skip
+//! the pod entirely. Unknown values of `stubby.io/type` (including the
+//! special value `off`) yield [`Decision::Skip`].
 use std::collections::BTreeMap;
 
+/// Which dummy variant a pod has opted into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DummyType {
+    /// Backend dummy — an `axum` HTTP server with `/health`, `/openapi.json`, etc.
     Backend,
+    /// Frontend dummy — nginx serving a templated HTML page.
     Frontend,
 }
 
+/// Fully-resolved configuration extracted from a pod's annotations.
+///
+/// `app_name` falls back to the pod name. `port` falls back to 8080
+/// (backend) or 80 (frontend). `image_override` and `skip_containers`
+/// are optional.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StubbyConfig {
     pub dummy_type: DummyType,
@@ -15,12 +29,20 @@ pub struct StubbyConfig {
     pub skip_containers: Vec<String>,
 }
 
+/// What the webhook decided to do with a pod.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
+    /// Mutate the pod using these settings.
     Inject(StubbyConfig),
+    /// Leave the pod untouched (no `stubby.io/type`, or value is `off`/unknown).
     Skip,
 }
 
+/// Translate a pod's annotation map into a [`Decision`].
+///
+/// `pod_name` is only used as the fallback for `stubby.io/app-name`.
+/// The function never returns an error — anything malformed (e.g. a
+/// non-numeric port) silently falls back to its default.
 pub fn parse_annotations(annotations: &BTreeMap<String, String>, pod_name: &str) -> Decision {
     let raw_type = match annotations.get("stubby.io/type") {
         Some(v) => v.as_str(),

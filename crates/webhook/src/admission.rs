@@ -1,3 +1,13 @@
+//! `admission.k8s.io/v1` AdmissionReview types and the top-level handler.
+//!
+//! [`handle`] is the pure decision function: AdmissionReview + image refs →
+//! AdmissionReview with an optional JSONPatch. Decode failures still return
+//! `allowed: true` (with an explanatory [`AdmissionStatus`] message) so the
+//! admission contract holds and the API server's `failurePolicy: Ignore`
+//! has a chance to skip us.
+//!
+//! Only the fields used by `pods.stubby.io` are modelled — this is not a
+//! general-purpose AdmissionReview client.
 use crate::annotation::{parse_annotations, Decision};
 use crate::config::ImageRefs;
 use crate::patch::build_patch;
@@ -5,6 +15,10 @@ use base64::Engine;
 use k8s_openapi::api::core::v1::Pod;
 use serde::{Deserialize, Serialize};
 
+/// Top-level `admission.k8s.io/v1` envelope.
+///
+/// `request` is set on the way in, `response` on the way out. We never
+/// emit both at once.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AdmissionReview {
     #[serde(rename = "apiVersion")]
@@ -16,6 +30,10 @@ pub struct AdmissionReview {
     pub response: Option<AdmissionResponse>,
 }
 
+/// The half of an AdmissionReview the API server sends us.
+///
+/// `object` arrives as raw JSON so the handler can decide whether to decode
+/// it as a Pod (and what to do if decoding fails).
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdmissionRequest {
@@ -23,6 +41,7 @@ pub struct AdmissionRequest {
     pub object: serde_json::Value,
 }
 
+/// The half of an AdmissionReview we send back.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdmissionResponse {
@@ -38,11 +57,18 @@ pub struct AdmissionResponse {
     pub status: Option<AdmissionStatus>,
 }
 
+/// Optional diagnostic envelope attached to an [`AdmissionResponse`].
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AdmissionStatus {
     pub message: String,
 }
 
+/// Decide what to do with a single AdmissionReview.
+///
+/// Always returns `allowed: true`. The shape of the response varies:
+/// - missing/skipped pod → empty allow.
+/// - malformed Pod object → allow + [`AdmissionStatus::message`].
+/// - matched pod → allow + base64-encoded JSONPatch.
 pub fn handle(review: AdmissionReview, imgs: &ImageRefs) -> AdmissionReview {
     let req = match review.request {
         Some(r) => r,

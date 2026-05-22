@@ -1,3 +1,13 @@
+//! HTTP layer — axum router, body extraction, and admission dispatch.
+//!
+//! The router wires four endpoints:
+//! - `GET /healthz`, `GET /readyz` — liveness/readiness probes.
+//! - `GET /metrics` — Prometheus exposition format.
+//! - `POST /mutate` — the admission webhook itself.
+//!
+//! `/mutate` accepts the body as raw bytes (not `Json<...>`) so we can
+//! return a synthetic `AdmissionResponse` with a status message on decode
+//! errors instead of an HTTP 4xx that would trip `failurePolicy`.
 use crate::admission::{handle, AdmissionResponse, AdmissionReview, AdmissionStatus};
 use crate::config::ImageRefs;
 use axum::{
@@ -15,11 +25,13 @@ use std::sync::Arc;
 /// `--max-request-bytes` defaults to ~3 MiB, so 8 MiB has plenty of head room.
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
+/// Shared request state — currently only the dummy image references.
 #[derive(Clone)]
 pub struct AppState {
     pub image_refs: Arc<ImageRefs>,
 }
 
+/// Build the application router, wiring all four routes with the body-size limit.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))

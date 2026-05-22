@@ -1,10 +1,29 @@
+//! JSON Patch (RFC 6902) builder for the mutation step.
+//!
+//! [`build_patch`] walks each container in the pod, skipping known sidecars
+//! and user-supplied exclusions, and overlays five fields: `image`, `ports`,
+//! `livenessProbe`, `readinessProbe`, and `env`. `resources` defaults are
+//! emitted only if the manifest did not already declare them, so the
+//! operator's choices win.
+//!
+//! Operations use `add` rather than `replace` for optional fields because
+//! `replace` errors out when the target is absent (RFC 6902 §4.3); pod
+//! specs frequently ship without `ports`/`probes` until stubby fills them in.
 use crate::annotation::{DummyType, StubbyConfig};
 use crate::config::ImageRefs;
 use json_patch::PatchOperation;
 use k8s_openapi::api::core::v1::Pod;
 
+/// Container-name prefixes that are never mutated.
+///
+/// These are common service-mesh and secret-injector sidecars that ship
+/// their own image and break if rewritten.
 pub const ALWAYS_SKIP_PREFIXES: &[&str] = &["istio-", "linkerd-", "vault-", "cilium-"];
 
+/// Build the RFC 6902 patch list that turns `pod` into a stubby-mutated pod.
+///
+/// Returns an empty vector when every container is skipped — callers should
+/// treat that as "respond without a patch", not as an error.
 pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<PatchOperation> {
     let containers = pod
         .spec

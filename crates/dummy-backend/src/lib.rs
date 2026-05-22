@@ -1,8 +1,17 @@
+//! `stubby-dummy-backend` — drop-in axum HTTP server used as the backend dummy.
+//!
+//! The webhook swaps an annotated pod's container image to this binary's
+//! image so that Deployments and Services can come up green before the
+//! real application is built. Exposes `/health`, `/ready`, `/openapi.json`,
+//! and `/docs` plus a JSON catch-all on every other path.
 pub mod openapi;
 pub mod routes;
 
+/// Per-process configuration sourced from environment variables.
 #[derive(Clone, Debug)]
 pub struct BackendConfig {
+    /// Display name embedded in the dummy OpenAPI title (`<app> (dummy)`).
+    /// Provided by the webhook via `STUBBY_APP_NAME`; falls back to `"stubby"`.
     pub app_name: String,
 }
 

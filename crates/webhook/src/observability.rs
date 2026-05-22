@@ -1,3 +1,8 @@
+//! Prometheus metrics + the `stubby_admissions_total` counter.
+//!
+//! The recorder is installed once at startup via [`init_metrics`].
+//! [`render`] backs the `GET /metrics` endpoint; [`record_admission`]
+//! is called from the admission handler on every decision.
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::sync::OnceLock;
 

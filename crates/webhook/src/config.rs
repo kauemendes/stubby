@@ -1,5 +1,11 @@
+//! Process-level configuration read at startup.
+//!
+//! Misconfiguration (missing or blank `STUBBY_IMAGE_*`) surfaces as an
+//! `anyhow::Error` so `main` can bail before the webhook accepts traffic.
 use anyhow::Context;
 
+/// Fully-qualified dummy image references plumbed through the chart's
+/// `dummyImages.*` values via `STUBBY_IMAGE_BACKEND` / `STUBBY_IMAGE_FRONTEND`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRefs {
     pub backend: String,
