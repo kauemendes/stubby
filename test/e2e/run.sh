@@ -34,15 +34,36 @@ kind load docker-image "$FRONTEND_IMG" --name "$CLUSTER"
 
 echo "==> installing chart"
 kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
-helm upgrade --install stubby ./charts/stubby \
-  --namespace "$NS" \
-  --set image.repository=local/stubby-webhook \
-  --set image.tag=e2e \
-  --set image.pullPolicy=Never \
-  --set dummyImages.backend="$BACKEND_IMG" \
-  --set dummyImages.frontend="$FRONTEND_IMG" \
-  --set tls.mode=self-signed \
-  --wait --timeout=3m
+
+dump_diagnostics() {
+  echo "==> helm install failed — dumping diagnostics"
+  echo "---- get all"
+  kubectl get all,jobs -n "$NS" -o wide || true
+  echo "---- describe pods"
+  kubectl describe pods -n "$NS" || true
+  echo "---- pod logs (any container, --previous and current)"
+  for pod in $(kubectl get pods -n "$NS" -o name 2>/dev/null); do
+    echo "++ logs $pod (current)"
+    kubectl logs -n "$NS" "$pod" --all-containers --tail=200 || true
+    echo "++ logs $pod (previous)"
+    kubectl logs -n "$NS" "$pod" --all-containers --previous --tail=200 || true
+  done
+  echo "---- recent events"
+  kubectl get events -n "$NS" --sort-by=.lastTimestamp | tail -40 || true
+}
+
+if ! helm upgrade --install stubby ./charts/stubby \
+      --namespace "$NS" \
+      --set image.repository=local/stubby-webhook \
+      --set image.tag=e2e \
+      --set image.pullPolicy=Never \
+      --set dummyImages.backend="$BACKEND_IMG" \
+      --set dummyImages.frontend="$FRONTEND_IMG" \
+      --set tls.mode=self-signed \
+      --wait --timeout=3m; then
+  dump_diagnostics
+  exit 1
+fi
 
 echo "==> running case scripts"
 status=0
