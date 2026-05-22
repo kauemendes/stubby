@@ -14,7 +14,7 @@ WEBHOOK_IMG=local/stubby-webhook:e2e
 BACKEND_IMG=local/stubby-dummy-backend:e2e
 FRONTEND_IMG=local/stubby-dummy-frontend:e2e
 # Exported so case scripts (test/e2e/cases/*.sh) can use the same value.
-export CURL_IMG=${CURL_IMG:-curlimages/curl:8}
+export CURL_IMG=${CURL_IMG:-curlimages/curl:8.20.0}
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
@@ -29,7 +29,7 @@ docker build -f docker/webhook.Dockerfile        -t "$WEBHOOK_IMG"  .
 docker build -f docker/dummy-backend.Dockerfile  -t "$BACKEND_IMG"  .
 docker build -f docker/dummy-frontend.Dockerfile -t "$FRONTEND_IMG" .
 
-# Case scripts use curlimages/curl:8 to probe Services. Pre-pull it so the
+# Case scripts use curlimages/curl:8.20.0 to probe Services. Pre-pull it so the
 # transient `kubectl run` pod doesn't race the docker.io pull against
 # kubectl's 1-minute attach timeout.
 docker pull "$CURL_IMG" >/dev/null

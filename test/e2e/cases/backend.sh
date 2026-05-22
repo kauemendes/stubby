@@ -17,7 +17,7 @@ if [[ "$IMG" != "local/stubby-dummy-backend:e2e" ]]; then
 fi
 
 kubectl run curl-be --rm -i --restart=Never -n "$NS" \
-  --image="${CURL_IMG:-curlimages/curl:8}" \
+  --image="${CURL_IMG:-curlimages/curl:8.20.0}" \
   --image-pull-policy=IfNotPresent \
   -- curl -sf --max-time 10 http://orders-api.default.svc:8080/health \
   | grep -q ok
