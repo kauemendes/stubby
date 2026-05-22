@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="stubby logo">
+  <title>stubby</title>
+
+  <!-- Eraser cap: rounded top, flat bottom -->
+  <path d="M 84 76
+           L 84 56
+           Q 84 40 100 40
+           L 156 40
+           Q 172 40 172 56
+           L 172 76
+           Z"
+        fill="#FF7C8A"/>
+
+  <!-- Eraser highlight (top sheen) -->
+  <rect x="92" y="48" width="14" height="20" rx="4" fill="#FFB3BB" opacity="0.7"/>
+
+  <!-- Metal ferrule -->
+  <rect x="80" y="76" width="96" height="22" rx="2" fill="#BFC8D6"/>
+  <!-- Ferrule grooves -->
+  <rect x="80" y="80" width="96" height="1.5" fill="#5C6675" opacity="0.55"/>
+  <rect x="80" y="86" width="96" height="1.5" fill="#5C6675" opacity="0.55"/>
+  <rect x="80" y="92" width="96" height="1.5" fill="#5C6675" opacity="0.55"/>
+
+  <!-- Wood body (yellow) -->
+  <rect x="84" y="98" width="88" height="90" fill="#F5C518"/>
+  <!-- Wood body shading on right edge -->
+  <rect x="160" y="98" width="12" height="90" fill="#D9A911" opacity="0.6"/>
+  <!-- Wood body highlight on left edge -->
+  <rect x="84" y="98" width="8" height="90" fill="#FFE07A" opacity="0.55"/>
+
+  <!-- Sharpened wood (trapezoid narrowing) -->
+  <path d="M 84 188
+           L 172 188
+           L 144 224
+           L 112 224
+           Z"
+        fill="#E8C99A"/>
+  <!-- Wood grain lines -->
+  <path d="M 100 192 L 116 220" stroke="#A98C5C" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+  <path d="M 128 188 L 128 224" stroke="#A98C5C" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+  <path d="M 156 192 L 140 220" stroke="#A98C5C" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Graphite tip -->
+  <path d="M 112 224
+           L 144 224
+           L 128 240
+           Z"
+        fill="#1F2937"/>
+
+  <!-- Overall outline for crispness on light backgrounds -->
+  <g fill="none" stroke="#14171F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M 84 76
+             L 84 56
+             Q 84 40 100 40
+             L 156 40
+             Q 172 40 172 56
+             L 172 76 Z"/>
+    <rect x="80" y="76" width="96" height="22" rx="2"/>
+    <rect x="84" y="98" width="88" height="90"/>
+    <path d="M 84 188 L 172 188 L 144 224 L 112 224 Z"/>
+    <path d="M 112 224 L 144 224 L 128 240 Z"/>
+  </g>
+</svg>
