@@ -52,6 +52,17 @@ dump_diagnostics() {
   kubectl get events -n "$NS" --sort-by=.lastTimestamp | tail -40 || true
 }
 
+# Stream bootstrap-pod logs in the background so the failure mode is
+# visible even if Job/pod cleanup happens before dump_diagnostics runs.
+(
+  while sleep 2; do
+    kubectl logs -n "$NS" -l job-name=stubby-tls-bootstrap \
+      --all-containers --tail=-1 --prefix=true 2>/dev/null || true
+  done
+) &
+LOG_TAIL_PID=$!
+trap 'kill $LOG_TAIL_PID 2>/dev/null || true' EXIT
+
 if ! helm upgrade --install stubby ./charts/stubby \
       --namespace "$NS" \
       --set image.repository=local/stubby-webhook \
@@ -64,6 +75,8 @@ if ! helm upgrade --install stubby ./charts/stubby \
   dump_diagnostics
   exit 1
 fi
+kill $LOG_TAIL_PID 2>/dev/null || true
+trap - EXIT
 
 echo "==> running case scripts"
 status=0
