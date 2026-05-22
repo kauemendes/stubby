@@ -15,20 +15,20 @@ spec:
     spec:
       serviceAccountName: {{ include "stubby.fullname" . }}-tls
       restartPolicy: OnFailure
+      # The bootstrap container runs as root because the alpine/openssl image
+      # does not ship curl or jq, and `apk add`-ing them at runtime requires
+      # writes to apk's databases (owned by root). Other hardenings stay:
+      # caps=drop ALL, no privesc, seccomp=RuntimeDefault. Risk is bounded —
+      # one-shot Job (TTL 300s), only API verbs are get/patch on a single
+      # Secret and the MWC. This is the same trade-off cert-manager and
+      # comparable bootstrap jobs make.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: bootstrap
           image: {{ .Values.tls.selfSigned.image }}
           securityContext:
             allowPrivilegeEscalation: false
-            # readOnlyRootFilesystem is intentionally omitted: the bootstrap
-            # image (alpine/openssl) does not ship curl or jq, so the script
-            # `apk add`s them at runtime, which writes to /var/cache/apk and
-            # friends. Risk is bounded — the Job is one-shot (TTL 300s),
-            # runs non-root with no caps and seccomp=RuntimeDefault.
             capabilities:
               drop: [ALL]
           volumeMounts:
