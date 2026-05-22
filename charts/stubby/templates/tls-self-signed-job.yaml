@@ -5,8 +5,11 @@ metadata:
   name: {{ include "stubby.fullname" . }}-tls-bootstrap
   labels: {{- include "stubby.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: "-5"
+    # post-install so the MutatingWebhookConfiguration already exists when
+    # the Job tries to patch its caBundle (a pre-install Job would race
+    # the MWC template and 404 on the PATCH).
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
   ttlSecondsAfterFinished: 300
