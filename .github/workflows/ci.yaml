@@ -26,7 +26,8 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
       - name: install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        # Pinned: 0.6.21 is the last release with MSRV 1.81; 0.6.22+ require rustc 1.87.
+        run: cargo install cargo-llvm-cov --locked --version 0.6.21
       - name: cargo llvm-cov (webhook >= 80%)
         run: cargo llvm-cov --workspace --fail-under-lines 80 --package stubby-webhook
 
@@ -39,7 +40,10 @@ jobs:
         with:
           version: v3.16.4
       - name: install helm-unittest
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+        # Pinned: v1.1.0 introduced a plugin.yaml `platformHooks` field that breaks the
+        # plugin loader on current helm releases. v1.0.3 supports `documentIndex`, which
+        # is all we use.
+        run: helm plugin install --version v1.0.3 https://github.com/helm-unittest/helm-unittest
       - name: helm lint
         run: helm lint charts/stubby
       - name: helm unittest
