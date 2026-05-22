@@ -2,8 +2,11 @@ suite: mutatingwebhookconfiguration
 templates:
   - mutatingwebhookconfiguration.yaml
 tests:
-  - it: targets pods CREATE
+  - it: targets pods CREATE (cert-manager mode → single MWC document)
+    set:
+      tls.mode: cert-manager
     asserts:
+      - hasDocuments: { count: 1 }
       - equal:
           path: webhooks[0].rules[0].resources
           value: ["pods"]
@@ -15,6 +18,8 @@ tests:
           value: Ignore
 
   - it: requests admission v1 only
+    set:
+      tls.mode: cert-manager
     asserts:
       - equal:
           path: webhooks[0].admissionReviewVersions
@@ -27,10 +32,19 @@ tests:
       - isNotEmpty:
           path: metadata.annotations["cert-manager.io/inject-ca-from"]
 
-  - it: leaves caBundle empty in self-signed mode
+  - it: self-signed mode emits Secret + MWC with caBundle filled
     set:
       tls.mode: self-signed
     asserts:
-      - equal:
+      - hasDocuments: { count: 2 }
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+        documentIndex: 0
+      - containsDocument:
+          kind: MutatingWebhookConfiguration
+          apiVersion: admissionregistration.k8s.io/v1
+        documentIndex: 1
+      - isNotEmpty:
           path: webhooks[0].clientConfig.caBundle
-          value: ""
+        documentIndex: 1

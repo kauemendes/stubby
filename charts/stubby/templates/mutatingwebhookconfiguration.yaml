@@ -1,11 +1,55 @@
+{{- /*
+For self-signed mode we generate the CA + leaf in-template and emit the
+TLS Secret next to the MWC so the same cert lands in both. lookup keeps
+the cert stable across `helm upgrade` runs — first install generates
+fresh material, subsequent renders reuse what's already in the cluster.
+
+For cert-manager mode we drop the caBundle from the manifest and rely on
+the cert-manager.io/inject-ca-from annotation; cert-manager owns the
+Secret + caBundle lifecycle.
+*/ -}}
+{{- $fullname := include "stubby.fullname" . -}}
+{{- $secretName := printf "%s-tls" $fullname -}}
+{{- $caBundle := "" -}}
+
+{{- if eq .Values.tls.mode "self-signed" -}}
+{{- $altNames := list
+    (printf "%s.%s.svc" $fullname .Release.Namespace)
+    (printf "%s.%s.svc.cluster.local" $fullname .Release.Namespace) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- $tlsCrt := "" -}}
+{{- $tlsKey := "" -}}
+{{- if and $existing (hasKey ($existing.data | default dict) "tls.crt") -}}
+{{-   $caBundle = index $existing.data "ca.crt" -}}
+{{-   $tlsCrt   = index $existing.data "tls.crt" -}}
+{{-   $tlsKey   = index $existing.data "tls.key" -}}
+{{- else -}}
+{{-   $ca := genCA "stubby-ca" (int .Values.tls.selfSigned.validityDays) -}}
+{{-   $cert := genSignedCert $fullname nil $altNames (int .Values.tls.selfSigned.validityDays) $ca -}}
+{{-   $caBundle = $ca.Cert | b64enc -}}
+{{-   $tlsCrt   = $cert.Cert | b64enc -}}
+{{-   $tlsKey   = $cert.Key | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels: {{- include "stubby.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ $caBundle }}
+  tls.crt: {{ $tlsCrt }}
+  tls.key: {{ $tlsKey }}
+---
+{{- end }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: {{ include "stubby.fullname" . }}
+  name: {{ $fullname }}
   labels: {{- include "stubby.labels" . | nindent 4 }}
   {{- if eq .Values.tls.mode "cert-manager" }}
   annotations:
-    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "stubby.fullname" . }}"
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ $fullname }}"
   {{- end }}
 webhooks:
   - name: pods.stubby.io
@@ -22,10 +66,10 @@ webhooks:
     namespaceSelector: {{- toYaml .Values.webhook.namespaceSelector | nindent 6 }}
     clientConfig:
       service:
-        name: {{ include "stubby.fullname" . }}
+        name: {{ $fullname }}
         namespace: {{ .Release.Namespace }}
         path: /mutate
         port: {{ .Values.service.port }}
       {{- if eq .Values.tls.mode "self-signed" }}
-      caBundle: ""  # patched in-place by the self-signed TLS Job (Task 8.4)
+      caBundle: {{ $caBundle }}
       {{- end }}

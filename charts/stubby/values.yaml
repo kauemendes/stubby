@@ -38,10 +38,11 @@ tls:
       kind: Issuer
       name: stubby-selfsigned
   selfSigned:
-    # Must be a fully-pinned tag — alpine/openssl does not publish rolling
-    # minor tags (e.g. "3.3" does not exist; only "3.3.0"…"3.3.3" do).
-    image: alpine/openssl:3.3.3
-    validityDays: 365
+    # CA + leaf cert are generated at template time using `genCA` /
+    # `genSignedCert`. `lookup` pins the cert across upgrades by reading
+    # back the existing Secret, so this value is honoured only on the
+    # very first install.
+    validityDays: 3650
 
 resources:
   requests: { cpu: 50m, memory: 64Mi }
