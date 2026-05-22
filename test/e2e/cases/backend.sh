@@ -19,7 +19,8 @@ fi
 kubectl run curl-be --rm -i --restart=Never -n "$NS" \
   --image="${CURL_IMG:-curlimages/curl:8.20.0}" \
   --image-pull-policy=IfNotPresent \
-  -- curl -sf --max-time 10 http://orders-api.default.svc:8080/health \
+  -- curl -sf --max-time 10 --retry 5 --retry-delay 1 --retry-connrefused \
+       http://orders-api.default.svc:8080/health \
   | grep -q ok
 
 echo "backend OK ($IMG)"

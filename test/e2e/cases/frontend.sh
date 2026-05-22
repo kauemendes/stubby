@@ -31,7 +31,8 @@ fi
 BODY=$(kubectl run curl-fe --rm -i --restart=Never -n "$NS" \
   --image="${CURL_IMG:-curlimages/curl:8.20.0}" \
   --image-pull-policy=IfNotPresent \
-  -- curl -sf --max-time 10 http://storefront.default.svc:80/)
+  -- curl -sf --max-time 10 --retry 5 --retry-delay 1 --retry-connrefused \
+       http://storefront.default.svc:80/)
 
 if ! grep -q 'Storefront' <<<"$BODY"; then
   echo "FAIL: response from storefront did not contain 'Storefront'" >&2
