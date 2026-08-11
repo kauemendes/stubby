@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dummy frontend is now a Rust/`axum` binary** instead of nginx. It
+  renders the HTML page in memory (no writes to the root filesystem) and
+  listens on the injected port, which fixes two things that broke Pod
+  Security "restricted" workloads:
+  - `stubby.io/port` is now honoured by the frontend. Previously nginx
+    always listened on `80`, so any other port (including `8080`, the
+    backend default) failed the probes with `connection refused` and
+    CrashLooped.
+  - a mutated frontend now survives `readOnlyRootFilesystem: true` +
+    `runAsNonRoot` + `drop: [ALL]`. The old nginx entrypoint wrote the
+    rendered page under `/usr/share/nginx/html` at startup and died on a
+    read-only rootfs.
+  The frontend image is now distroless/non-root, matching the backend.
+
+### Added
+
+- **`STUBBY_PORT` injection** — the webhook injects `STUBBY_PORT` (from
+  `stubby.io/port`) so both dummy binaries bind exactly the port the
+  `containerPort`, probes, and Service target. The backend also honours
+  it (previously it only listened on `8080` unless
+  `STUBBY_BACKEND_LISTEN` was set).
+- **Orphaned config is stripped so pods boot green** — when injecting a
+  dummy, the webhook now removes `envFrom` and `volumeMounts` from
+  mutated containers and prunes now-orphaned `secret`/`configMap`/
+  `projected` pod `volumes`. Without this, a pod referencing not-yet-
+  created config left `ImagePullBackOff` only to land in
+  `CreateContainerConfigError`. Opt out with the new
+  `stubby.io/keep-env-from` and `stubby.io/keep-volumes` annotations.
+  Volumes still used by a skipped sidecar or init container are kept.
+- **e2e regression cases** for each of the three defects above
+  (`test/e2e/cases/defect{1,2,3}-*.sh`) plus example manifests.
+
+### Fixed
+
+- **Docs** — the injected liveness/readiness probes target `/health`
+  and `/ready` (not `/healthz`/`/readyz`, which are the webhook's *own*
+  endpoints). Corrected in `README.md`; `docs/annotations.md` and
+  `docs/troubleshooting.md` updated for the frontend rewrite and the new
+  stripping behaviour.
+
 ## [0.1.0] — 2026-05-22
 
 The first cut of `stubby`. A Kubernetes Mutating Admission Webhook in
