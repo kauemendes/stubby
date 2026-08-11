@@ -16,9 +16,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let addr: std::net::SocketAddr = std::env::var("STUBBY_BACKEND_LISTEN")
-        .unwrap_or_else(|_| "0.0.0.0:8080".into())
-        .parse()?;
+    let addr: std::net::SocketAddr = listen_addr().parse()?;
     let cfg = BackendConfig::from_env();
     let app = router(cfg);
 
@@ -28,6 +26,24 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+/// Resolve the listen address.
+///
+/// Precedence: `STUBBY_BACKEND_LISTEN` (full `host:port`, escape hatch) →
+/// `STUBBY_PORT` (the webhook injects this to match `stubby.io/port`) →
+/// `0.0.0.0:8080` (the backend default).
+fn listen_addr() -> String {
+    if let Ok(full) = std::env::var("STUBBY_BACKEND_LISTEN") {
+        let full = full.trim();
+        if !full.is_empty() {
+            return full.to_string();
+        }
+    }
+    match std::env::var("STUBBY_PORT") {
+        Ok(p) if !p.trim().is_empty() => format!("0.0.0.0:{}", p.trim()),
+        _ => "0.0.0.0:8080".to_string(),
+    }
 }
 
 async fn shutdown_signal() {

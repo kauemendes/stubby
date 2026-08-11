@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 pub enum DummyType {
     /// Backend dummy — an `axum` HTTP server with `/health`, `/openapi.json`, etc.
     Backend,
-    /// Frontend dummy — nginx serving a templated HTML page.
+    /// Frontend dummy — an `axum` HTTP server rendering a templated HTML page.
     Frontend,
 }
 
@@ -27,6 +27,18 @@ pub struct StubbyConfig {
     pub port: u16,
     pub image_override: Option<String>,
     pub skip_containers: Vec<String>,
+    /// When `true`, keep the original `envFrom` on mutated containers instead
+    /// of stripping it. Off by default: a dangling `secretRef`/`configMapRef`
+    /// (normal when the real app isn't provisioned yet) puts the pod into
+    /// `CreateContainerConfigError`, defeating "every pod boots green".
+    /// Set via `stubby.io/keep-env-from: "true"`.
+    pub keep_env_from: bool,
+    /// When `true`, keep the original `volumeMounts` and pod `volumes` instead
+    /// of stripping the ones that would block startup. Off by default, for the
+    /// same reason as `keep_env_from` (a `secret`/`configMap` volume whose
+    /// backing object is missing wedges the pod in `ContainerCreating`).
+    /// Set via `stubby.io/keep-volumes: "true"`.
+    pub keep_volumes: bool,
 }
 
 /// What the webhook decided to do with a pod.
@@ -75,13 +87,26 @@ pub fn parse_annotations(annotations: &BTreeMap<String, String>, pod_name: &str)
         .map(|csv| csv.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
+    let keep_env_from = parse_bool(annotations.get("stubby.io/keep-env-from"));
+    let keep_volumes = parse_bool(annotations.get("stubby.io/keep-volumes"));
+
     Decision::Inject(StubbyConfig {
         dummy_type,
         app_name,
         port,
         image_override,
         skip_containers,
+        keep_env_from,
+        keep_volumes,
     })
+}
+
+/// Parse an opt-in boolean annotation. Only a case-insensitive `"true"` enables
+/// the flag; anything else (absent, `"false"`, garbage) leaves it off, matching
+/// the "fail safe to the default behaviour" rule used for the other fields.
+fn parse_bool(raw: Option<&String>) -> bool {
+    raw.map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -125,6 +150,8 @@ mod tests {
                 port: 8080,
                 image_override: None,
                 skip_containers: vec![],
+                keep_env_from: false,
+                keep_volumes: false,
             })
         );
     }
@@ -141,6 +168,8 @@ mod tests {
                 port: 80,
                 image_override: None,
                 skip_containers: vec![],
+                keep_env_from: false,
+                keep_volumes: false,
             })
         );
     }
@@ -197,6 +226,59 @@ mod tests {
             panic!()
         };
         assert_eq!(cfg.image_override.as_deref(), Some("ghcr.io/me/myimg:tag"));
+    }
+
+    #[test]
+    fn keep_env_from_defaults_false_and_opts_in_case_insensitively() {
+        let a = ann(&[("stubby.io/type", "backend")]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert!(!cfg.keep_env_from, "must default to stripping envFrom");
+
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/keep-env-from", "TRUE"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert!(cfg.keep_env_from);
+    }
+
+    #[test]
+    fn keep_volumes_defaults_false_and_opts_in() {
+        let a = ann(&[("stubby.io/type", "backend")]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert!(
+            !cfg.keep_volumes,
+            "must default to stripping orphan volumes"
+        );
+
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/keep-volumes", "true"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert!(cfg.keep_volumes);
+    }
+
+    #[test]
+    fn keep_flags_ignore_non_true_values() {
+        let a = ann(&[
+            ("stubby.io/type", "backend"),
+            ("stubby.io/keep-env-from", "yes"),
+            ("stubby.io/keep-volumes", "1"),
+        ]);
+        let Decision::Inject(cfg) = parse_annotations(&a, "p") else {
+            panic!()
+        };
+        assert!(!cfg.keep_env_from);
+        assert!(!cfg.keep_volumes);
     }
 
     #[test]

@@ -12,7 +12,8 @@
 use crate::annotation::{DummyType, StubbyConfig};
 use crate::config::ImageRefs;
 use json_patch::PatchOperation;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{Pod, Volume};
+use std::collections::BTreeSet;
 
 /// Container-name prefixes that are never mutated.
 ///
@@ -85,18 +86,37 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             ops.push(remove_op(&format!("{base}/args")));
         }
 
-        // env: append STUBBY_APP_NAME if env array exists; otherwise create it
-        let env_value = serde_json::json!({
-            "name": "STUBBY_APP_NAME",
-            "value": cfg.app_name
-        });
+        // env: inject STUBBY_APP_NAME (display name) and STUBBY_PORT (so the
+        // dummy binary listens on the same port the ports/probes target — the
+        // annotated `stubby.io/port`). Append to an existing `env` array,
+        // otherwise create it.
+        let injected_env = serde_json::json!([
+            {"name": "STUBBY_APP_NAME", "value": cfg.app_name},
+            {"name": "STUBBY_PORT", "value": cfg.port.to_string()},
+        ]);
         if c.env.is_some() {
-            ops.push(add_op(&format!("{base}/env/-"), env_value));
+            for v in injected_env.as_array().expect("literal array") {
+                ops.push(add_op(&format!("{base}/env/-"), v.clone()));
+            }
         } else {
-            ops.push(add_op(
-                &format!("{base}/env"),
-                serde_json::json!([env_value]),
-            ));
+            ops.push(add_op(&format!("{base}/env"), injected_env));
+        }
+
+        // envFrom: strip by default. A `secretRef`/`configMapRef` whose target
+        // doesn't exist yet (the norm before the real app is provisioned) puts
+        // the pod into `CreateContainerConfigError` — trading ImagePullBackOff
+        // for another red state. The dummy needs no real config, so drop it.
+        // Opt out with `stubby.io/keep-env-from: "true"`.
+        if !cfg.keep_env_from && c.env_from.is_some() {
+            ops.push(remove_op(&format!("{base}/envFrom")));
+        }
+
+        // volumeMounts: strip by default, same rationale — a mount backed by a
+        // missing secret/configMap wedges the pod in `ContainerCreating`. The
+        // matching pod-level volumes are pruned after the loop (see below).
+        // Opt out with `stubby.io/keep-volumes: "true"`.
+        if !cfg.keep_volumes && c.volume_mounts.is_some() {
+            ops.push(remove_op(&format!("{base}/volumeMounts")));
         }
 
         // resources: defaults only if missing
@@ -110,7 +130,79 @@ pub fn build_patch(pod: &Pod, cfg: &StubbyConfig, imgs: &ImageRefs) -> Vec<Patch
             ));
         }
     }
+
+    // Pod-level: prune orphaned secret/configMap/projected volumes left behind
+    // once mutated containers no longer mount them (see `prune_orphan_volumes`).
+    if let Some(op) = prune_orphan_volumes(pod, cfg) {
+        ops.push(op);
+    }
     ops
+}
+
+/// Build a single patch op that drops pod `volumes` which would block startup
+/// after mutation, or `None` if there is nothing to prune.
+///
+/// A `secret`, `configMap`, or `projected` volume whose backing object is
+/// missing wedges the pod in `ContainerCreating` (kubelet must set every
+/// pod volume up, even ones no started container mounts). Since mutated
+/// containers have their `volumeMounts` stripped, such a volume is orphaned —
+/// unless a container we *keep* (a skipped sidecar or an init container) still
+/// references it, in which case we leave it alone. `emptyDir`, PVCs, etc. are
+/// never pruned: they don't fail this way and removing a PVC could hide real
+/// intent. No-op when `stubby.io/keep-volumes` is set.
+fn prune_orphan_volumes(pod: &Pod, cfg: &StubbyConfig) -> Option<PatchOperation> {
+    if cfg.keep_volumes {
+        return None;
+    }
+    let spec = pod.spec.as_ref()?;
+    let volumes = spec.volumes.as_ref()?;
+    if volumes.is_empty() {
+        return None;
+    }
+
+    // Volume names still referenced after mutation: by kept (skipped)
+    // containers and by any init container. Mutated containers no longer count
+    // because their volumeMounts are removed.
+    let mut needed: BTreeSet<&str> = BTreeSet::new();
+    for c in &spec.containers {
+        if should_skip(&c.name, cfg) {
+            if let Some(mounts) = &c.volume_mounts {
+                for m in mounts {
+                    needed.insert(m.name.as_str());
+                }
+            }
+        }
+    }
+    if let Some(inits) = &spec.init_containers {
+        for c in inits {
+            if let Some(mounts) = &c.volume_mounts {
+                for m in mounts {
+                    needed.insert(m.name.as_str());
+                }
+            }
+        }
+    }
+
+    let kept: Vec<&Volume> = volumes
+        .iter()
+        .filter(|v| {
+            let blocks_on_missing =
+                v.secret.is_some() || v.config_map.is_some() || v.projected.is_some();
+            !blocks_on_missing || needed.contains(v.name.as_str())
+        })
+        .collect();
+
+    if kept.len() == volumes.len() {
+        return None; // nothing orphaned
+    }
+    if kept.is_empty() {
+        Some(remove_op("/spec/volumes"))
+    } else {
+        Some(replace_op(
+            "/spec/volumes",
+            serde_json::to_value(kept).expect("Volume serializes to JSON"),
+        ))
+    }
 }
 
 fn replace_op(path: &str, value: serde_json::Value) -> PatchOperation {
@@ -183,6 +275,8 @@ mod tests {
             port: 8080,
             image_override: None,
             skip_containers: vec![],
+            keep_env_from: false,
+            keep_volumes: false,
         }
     }
 
@@ -374,5 +468,221 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(img, "ghcr.io/me/custom:dev");
+    }
+
+    fn pod_from_spec(spec: serde_json::Value) -> Pod {
+        let v = json!({
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": {"name": "p"},
+            "spec": spec
+        });
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn injects_stubby_port_env_matching_config() {
+        let cfg = StubbyConfig {
+            port: 9090,
+            ..backend_cfg()
+        };
+        let pod = pod_with_containers(json!([{"name":"app","image":"orig:1"}]));
+        let ops = build_patch(&pod, &cfg, &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        // No pre-existing env: a single `add /env` carries both vars.
+        let env_add = arr
+            .iter()
+            .find(|x| x["op"] == "add" && x["path"].as_str().unwrap().ends_with("/env"))
+            .expect("env add op");
+        let vals = env_add["value"].as_array().unwrap();
+        let port = vals
+            .iter()
+            .find(|v| v["name"] == "STUBBY_PORT")
+            .expect("STUBBY_PORT injected");
+        assert_eq!(port["value"], "9090");
+        assert!(vals.iter().any(|v| v["name"] == "STUBBY_APP_NAME"));
+    }
+
+    #[test]
+    fn appends_both_env_vars_when_env_present() {
+        let pod = pod_with_containers(
+            json!([{"name":"app","image":"orig:1","env":[{"name":"FOO","value":"1"}]}]),
+        );
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let appended: Vec<_> = arr
+            .iter()
+            .filter(|x| x["op"] == "add" && x["path"].as_str().unwrap().ends_with("/env/-"))
+            .map(|x| x["value"]["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(appended, vec!["STUBBY_APP_NAME", "STUBBY_PORT"]);
+    }
+
+    #[test]
+    fn strips_env_from_by_default() {
+        let pod = pod_with_containers(json!([{
+            "name":"app","image":"orig:1",
+            "envFrom":[{"secretRef":{"name":"not-created-yet"}}]
+        }]));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(
+            arr.iter()
+                .any(|x| x["op"] == "remove" && x["path"] == "/spec/containers/0/envFrom"),
+            "orphan envFrom must be removed so the pod boots green"
+        );
+    }
+
+    #[test]
+    fn keeps_env_from_when_opted_in() {
+        let cfg = StubbyConfig {
+            keep_env_from: true,
+            ..backend_cfg()
+        };
+        let pod = pod_with_containers(json!([{
+            "name":"app","image":"orig:1",
+            "envFrom":[{"secretRef":{"name":"real"}}]
+        }]));
+        let ops = build_patch(&pod, &cfg, &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(arr
+            .iter()
+            .all(|x| x["path"].as_str().unwrap() != "/spec/containers/0/envFrom"));
+    }
+
+    #[test]
+    fn no_env_from_op_when_container_has_none() {
+        let pod = pod_with_containers(json!([{"name":"app","image":"orig:1"}]));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(arr
+            .iter()
+            .all(|x| !x["path"].as_str().unwrap().ends_with("/envFrom")));
+    }
+
+    #[test]
+    fn strips_volume_mounts_and_prunes_orphan_secret_volume() {
+        let pod = pod_from_spec(json!({
+            "containers": [{
+                "name":"app","image":"orig:1",
+                "volumeMounts":[{"name":"cfg","mountPath":"/etc/cfg"}]
+            }],
+            "volumes":[{"name":"cfg","secret":{"secretName":"not-created-yet"}}]
+        }));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(
+            arr.iter()
+                .any(|x| x["op"] == "remove" && x["path"] == "/spec/containers/0/volumeMounts"),
+            "volumeMounts must be stripped"
+        );
+        assert!(
+            arr.iter()
+                .any(|x| x["op"] == "remove" && x["path"] == "/spec/volumes"),
+            "the sole orphan secret volume must be pruned"
+        );
+    }
+
+    #[test]
+    fn prunes_only_orphan_volume_and_keeps_the_rest() {
+        let pod = pod_from_spec(json!({
+            "containers":[{
+                "name":"app","image":"orig:1",
+                "volumeMounts":[
+                    {"name":"cfg","mountPath":"/etc/cfg"},
+                    {"name":"scratch","mountPath":"/tmp"}
+                ]
+            }],
+            "volumes":[
+                {"name":"cfg","secret":{"secretName":"not-created-yet"}},
+                {"name":"scratch","emptyDir":{}}
+            ]
+        }));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        let vol_op = arr
+            .iter()
+            .find(|x| x["path"] == "/spec/volumes")
+            .expect("expected a /spec/volumes op");
+        assert_eq!(vol_op["op"], "replace");
+        let kept = vol_op["value"].as_array().unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0]["name"], "scratch");
+    }
+
+    #[test]
+    fn does_not_prune_emptydir_volume() {
+        let pod = pod_from_spec(json!({
+            "containers":[{
+                "name":"app","image":"orig:1",
+                "volumeMounts":[{"name":"scratch","mountPath":"/tmp"}]
+            }],
+            "volumes":[{"name":"scratch","emptyDir":{}}]
+        }));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(arr
+            .iter()
+            .any(|x| x["op"] == "remove" && x["path"] == "/spec/containers/0/volumeMounts"));
+        assert!(
+            arr.iter()
+                .all(|x| x["path"].as_str().unwrap() != "/spec/volumes"),
+            "emptyDir does not block on a missing object, so keep it"
+        );
+    }
+
+    #[test]
+    fn preserves_secret_volume_still_used_by_skipped_sidecar() {
+        let pod = pod_from_spec(json!({
+            "containers":[
+                {"name":"app","image":"orig:1",
+                 "volumeMounts":[{"name":"cfg","mountPath":"/etc/cfg"}]},
+                {"name":"istio-proxy","image":"istio:1",
+                 "volumeMounts":[{"name":"cfg","mountPath":"/etc/cfg"}]}
+            ],
+            "volumes":[{"name":"cfg","secret":{"secretName":"mesh-certs"}}]
+        }));
+        let ops = build_patch(&pod, &backend_cfg(), &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(
+            arr.iter()
+                .all(|x| x["path"].as_str().unwrap() != "/spec/volumes"),
+            "volume is still mounted by the skipped sidecar; must not be pruned"
+        );
+        assert!(arr
+            .iter()
+            .any(|x| x["op"] == "remove" && x["path"] == "/spec/containers/0/volumeMounts"));
+    }
+
+    #[test]
+    fn keeps_volumes_and_mounts_when_opted_in() {
+        let cfg = StubbyConfig {
+            keep_volumes: true,
+            ..backend_cfg()
+        };
+        let pod = pod_from_spec(json!({
+            "containers":[{
+                "name":"app","image":"orig:1",
+                "volumeMounts":[{"name":"cfg","mountPath":"/etc/cfg"}]
+            }],
+            "volumes":[{"name":"cfg","secret":{"secretName":"real"}}]
+        }));
+        let ops = build_patch(&pod, &cfg, &refs());
+        let j = ops_to_json(&ops);
+        let arr = j.as_array().unwrap();
+        assert!(arr
+            .iter()
+            .all(|x| x["path"].as_str().unwrap() != "/spec/volumes"));
+        assert!(arr
+            .iter()
+            .all(|x| x["path"].as_str().unwrap() != "/spec/containers/0/volumeMounts"));
     }
 }
