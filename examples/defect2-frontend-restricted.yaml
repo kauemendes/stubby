@@ -1,0 +1,48 @@
+# Defect 2 regression: a mutated frontend must survive Pod Security
+# "restricted" — specifically readOnlyRootFilesystem, which killed the old
+# nginx image (its entrypoint wrote the rendered page into the root fs).
+# The Rust dummy renders in memory, so it comes up 1/1 under the full
+# restricted context below.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe-restricted
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fe-restricted
+  template:
+    metadata:
+      labels:
+        app: fe-restricted
+      annotations:
+        stubby.io/type: frontend
+        stubby.io/app-name: "Restricted"
+        stubby.io/port: "8080"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: site
+          image: ghcr.io/example/frontend:notbuilt
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fe-restricted
+spec:
+  selector:
+    app: fe-restricted
+  ports:
+    - port: 80
+      targetPort: http
