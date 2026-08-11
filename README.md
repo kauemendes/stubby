@@ -74,7 +74,7 @@ images:
 | Type     | Image                              | Behavior |
 |----------|------------------------------------|----------|
 | `backend`  | `stubby-dummy-backend`           | `axum` HTTP server exposing `/health`, `/ready`, `/openapi.json`, `/docs`. Catch-all returns `{"status":"dummy"}`. |
-| `frontend` | `stubby-dummy-frontend`          | nginx serving a single HTML page with XSS-safe templated app name. |
+| `frontend` | `stubby-dummy-frontend`          | `axum` HTTP server rendering a single HTML page (in memory) with an XSS-safe templated app name, plus `/health` and `/ready`. |
 | `off`      | _(no injection)_                 | Skip the pod entirely. Useful once the real image lands. |
 
 Containers whose name starts with a known sidecar prefix
@@ -145,25 +145,44 @@ annotations:
 | `stubby.io/port`            |          | `8080`/`80` | HTTP port the dummy listens on. |
 | `stubby.io/image-override`  |          | _none_      | Use a fully-qualified image reference instead of the bundled dummies. The rest of the injection (ports/probes/env) still applies. |
 | `stubby.io/skip-containers` |          | _empty_     | Comma-separated container names that must not be mutated, in addition to the built-in sidecar prefixes. |
+| `stubby.io/keep-env-from`   |          | `false`     | Keep the container's `envFrom` instead of stripping it. |
+| `stubby.io/keep-volumes`    |          | `false`     | Keep `volumeMounts` and orphaned `volumes` instead of pruning them. |
 
 Full table with examples: [docs/annotations.md](docs/annotations.md).
 
 ## What gets injected
 
-The JSONPatch overlays exactly five fields on each matched container:
+The JSONPatch overlays these fields on each matched container:
 
 1. `image` — `stubby.io/image-override` if set, else the type-specific
    default from the chart values (`dummyImages.backend` or
    `dummyImages.frontend`).
 2. `ports` — a single `containerPort` matching `stubby.io/port`.
-3. `livenessProbe` / `readinessProbe` — `httpGet` on `/healthz` and
-   `/readyz` respectively, scheme `HTTP`.
-4. `env` — appends `STUBBY_APP_NAME=<stubby.io/app-name>`.
+3. `livenessProbe` / `readinessProbe` — `httpGet` on `/health` and
+   `/ready` respectively, scheme `HTTP`, both on `stubby.io/port`.
+4. `env` — appends `STUBBY_APP_NAME=<stubby.io/app-name>` and
+   `STUBBY_PORT=<stubby.io/port>`. The dummy binaries listen on
+   `STUBBY_PORT`, so the container always binds the exact port the
+   probes and Service target.
 5. `resources` — defaults applied **only** when the manifest doesn't
    already define them, so your real workload's requests/limits win.
 
-JSON Patch operations use `add` (not `replace`) so previously-absent
-fields don't fail with RFC 6902 conflicts.
+and removes plumbing the dummy doesn't need — and that would otherwise
+keep the pod red while the real app is unprovisioned:
+
+6. `envFrom` is dropped (a dangling `secretRef`/`configMapRef` causes
+   `CreateContainerConfigError`). Opt out with
+   `stubby.io/keep-env-from: "true"`.
+7. `volumeMounts` are dropped, and any now-orphaned `secret` /
+   `configMap` / `projected` pod `volumes` are pruned (a missing backing
+   object wedges the pod in `ContainerCreating`). Volumes still mounted
+   by a skipped sidecar or an init container are left intact. Opt out
+   with `stubby.io/keep-volumes: "true"`.
+8. `command` / `args` are removed if present, so the dummy's own
+   entrypoint runs.
+
+JSON Patch operations use `add` (not `replace`) for optional fields so
+previously-absent fields don't fail with RFC 6902 conflicts.
 
 ## Configuration
 
@@ -203,7 +222,14 @@ runbooks.
 
 - Pod Security "restricted" profile compliant — `runAsNonRoot`,
   `readOnlyRootFilesystem`, `drop ALL` capabilities, seccomp
-  `RuntimeDefault`.
+  `RuntimeDefault`. This holds for the webhook's own pods **and** for the
+  pods it mutates: both dummy images are distroless, run as non-root, and
+  render everything in memory (no writes to the root filesystem). The
+  dummies default to port `8080` precisely so they never need to bind a
+  privileged port; to expose `:80` externally, map a Service `port: 80`
+  to `targetPort: http`. (A distroless non-root process can't bind `<1024`
+  without file/ambient capabilities, so listening on `80` in-container
+  requires running that pod as root.)
 - TLS-only ingress; certs hot-reloaded every 60s without restart.
 - `failurePolicy: Ignore` is the safe default — failed-open, not
   failed-closed.

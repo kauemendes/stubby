@@ -1,0 +1,48 @@
+# Defect 3 regression: a pod that references config which doesn't exist yet
+# (normal before the real app is provisioned) must still boot green. Before
+# the fix, stubby swapped the image but left the dangling envFrom/volume, so
+# the pod went from ImagePullBackOff to CreateContainerConfigError.
+#
+# This backend references BOTH a missing envFrom Secret and a missing Secret
+# volume. stubby strips both, so it comes up 1/1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-envfrom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-envfrom
+  template:
+    metadata:
+      labels:
+        app: api-envfrom
+      annotations:
+        stubby.io/type: backend
+        stubby.io/app-name: "Envfrom API"
+    spec:
+      volumes:
+        - name: app-config
+          secret:
+            secretName: does-not-exist-yet
+      containers:
+        - name: api
+          image: ghcr.io/example/api:notbuilt
+          envFrom:
+            - secretRef:
+                name: does-not-exist-yet
+          volumeMounts:
+            - name: app-config
+              mountPath: /etc/app-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-envfrom
+spec:
+  selector:
+    app: api-envfrom
+  ports:
+    - port: 8080
+      targetPort: http

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::time::Duration;
-use stubby_dummy_backend::{routes::router, BackendConfig};
+use stubby_dummy_frontend::{routes::router, FrontendConfig};
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
@@ -17,11 +17,11 @@ async fn main() -> Result<()> {
         .init();
 
     let addr: std::net::SocketAddr = listen_addr().parse()?;
-    let cfg = BackendConfig::from_env();
+    let cfg = FrontendConfig::from_env();
     let app = router(cfg);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!(%addr, "stubby-dummy-backend listening");
+    info!(%addr, "stubby-dummy-frontend listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
@@ -30,11 +30,13 @@ async fn main() -> Result<()> {
 
 /// Resolve the listen address.
 ///
-/// Precedence: `STUBBY_BACKEND_LISTEN` (full `host:port`, escape hatch) →
+/// Precedence: `STUBBY_FRONTEND_LISTEN` (full `host:port`, escape hatch) →
 /// `STUBBY_PORT` (the webhook injects this to match `stubby.io/port`) →
-/// `0.0.0.0:8080` (the backend default).
+/// `0.0.0.0:80` (the frontend default). The image runs non-root, so binding
+/// a privileged port (<1024) needs the pod to run as root; the recommended
+/// setup keeps the container on 8080 behind a Service `targetPort`.
 fn listen_addr() -> String {
-    if let Ok(full) = std::env::var("STUBBY_BACKEND_LISTEN") {
+    if let Ok(full) = std::env::var("STUBBY_FRONTEND_LISTEN") {
         let full = full.trim();
         if !full.is_empty() {
             return full.to_string();
@@ -42,7 +44,7 @@ fn listen_addr() -> String {
     }
     match std::env::var("STUBBY_PORT") {
         Ok(p) if !p.trim().is_empty() => format!("0.0.0.0:{}", p.trim()),
-        _ => "0.0.0.0:8080".to_string(),
+        _ => "0.0.0.0:80".to_string(),
     }
 }
 

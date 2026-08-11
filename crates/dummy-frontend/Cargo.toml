@@ -9,11 +9,20 @@ build = "build.rs"
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "stubby-dummy-frontend"
+path = "src/main.rs"
+
 [dependencies]
-# (runtime currently has no fallible IO; render_index returns String)
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+tower.workspace = true

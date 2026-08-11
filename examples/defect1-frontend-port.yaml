@@ -1,0 +1,80 @@
+# Defect 1 regression: the frontend dummy must honour stubby.io/port.
+# Before the fix, the frontend (nginx) always listened on 80, so any port
+# other than 80 gave `connection refused` on the probes and CrashLoop.
+#
+# Two Deployments exercise both ends of the acceptance criterion:
+#   - fe-port-8080: the common non-privileged port (also patch.rs's backend
+#     default). Runs as the image's non-root user, no extra capabilities.
+#   - fe-port-80:   a privileged port (<1024). The dummy image is
+#     distroless/non-root, and a non-root process without file capabilities
+#     or ambient caps cannot bind <1024 — so this pod overrides runAsUser to
+#     0. In practice you'd keep the container non-root on 8080 and map
+#     Service port 80 -> targetPort http; binding 80 in-container is only
+#     needed when something insists on the container itself listening there.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe-port-8080
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fe-port-8080
+  template:
+    metadata:
+      labels:
+        app: fe-port-8080
+      annotations:
+        stubby.io/type: frontend
+        stubby.io/app-name: "Port 8080"
+        stubby.io/port: "8080"
+    spec:
+      containers:
+        - name: site
+          image: ghcr.io/example/frontend:notbuilt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fe-port-8080
+spec:
+  selector:
+    app: fe-port-8080
+  ports:
+    - port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe-port-80
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fe-port-80
+  template:
+    metadata:
+      labels:
+        app: fe-port-80
+      annotations:
+        stubby.io/type: frontend
+        stubby.io/app-name: "Port 80"
+        stubby.io/port: "80"
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: site
+          image: ghcr.io/example/frontend:notbuilt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fe-port-80
+spec:
+  selector:
+    app: fe-port-80
+  ports:
+    - port: 80
+      targetPort: http

@@ -1,9 +1,17 @@
 # syntax=docker/dockerfile:1.7
-FROM nginx:1.27-alpine
-COPY crates/dummy-frontend/templates/index.html.tmpl /etc/stubby/index.html.tmpl
-COPY crates/dummy-frontend/templates/style.css       /etc/stubby/style.css
-COPY crates/dummy-frontend/nginx/default.conf        /etc/nginx/conf.d/default.conf
-COPY crates/dummy-frontend/nginx/entrypoint.sh       /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-EXPOSE 80
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+FROM rust:1.85-bookworm AS builder
+WORKDIR /src
+COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release -p stubby-dummy-frontend && \
+    cp /src/target/release/stubby-dummy-frontend /tmp/app
+
+FROM gcr.io/distroless/cc-debian12:nonroot
+COPY --from=builder /tmp/app /usr/local/bin/app
+USER nonroot
+# The dummy listens on STUBBY_PORT (injected by the webhook). 8080 is the
+# default non-privileged port; binding 80 as non-root needs NET_BIND_SERVICE.
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/app"]

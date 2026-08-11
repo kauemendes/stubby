@@ -8,6 +8,11 @@
 # Set KEEP=1 to leave the cluster running after the run.
 set -euo pipefail
 
+# The Dockerfiles use `# syntax=` and `--mount=type=cache`, which need
+# BuildKit. It is the default on modern Docker but not on older daemons
+# (e.g. 20.10), so enable it explicitly for portability.
+export DOCKER_BUILDKIT=1
+
 CLUSTER=${CLUSTER:-stubby-e2e}
 NS=stubby-system
 WEBHOOK_IMG=local/stubby-webhook:e2e
