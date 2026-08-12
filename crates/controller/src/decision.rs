@@ -43,6 +43,17 @@ pub fn containers_to_stub(pod: &Pod, cfg: &RescueConfig) -> Vec<StubAction> {
         .cloned()
         .unwrap_or_default();
 
+    let spec_images: BTreeMap<&str, &str> = pod
+        .spec
+        .as_ref()
+        .map(|s| {
+            s.containers
+                .iter()
+                .filter_map(|c| c.image.as_deref().map(|img| (c.name.as_str(), img)))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let mut out = Vec::new();
     for cs in &statuses {
         if is_sidecar(&cs.name) || already.contains_key(&cs.name) {
@@ -58,8 +69,12 @@ pub fn containers_to_stub(pod: &Pod, cfg: &RescueConfig) -> Vec<StubAction> {
         if !failing {
             continue;
         }
-        // The image the pod is trying (and failing) to pull is the original.
-        let original_image = cs.image.clone();
+        // The pod spec's image is authoritative for restore; fall back to the
+        // status image if no spec container matches (shouldn't normally happen).
+        let original_image = spec_images
+            .get(cs.name.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| cs.image.clone());
         out.push(StubAction {
             name: cs.name.clone(),
             original_image,
@@ -164,8 +179,10 @@ mod tests {
 
     #[test]
     fn sidecar_prefixes_match_webhook() {
-        // Keep this list identical to crates/webhook/src/patch.rs
-        // ALWAYS_SKIP_PREFIXES. If the webhook adds a prefix, add it here too.
+        // Controller-side tripwire: this pins the controller's own list. It
+        // does NOT observe the webhook (crates/webhook/src/patch.rs) — if that
+        // list changes, update this one by hand. A shared crate would remove
+        // the duplication; deferred for the experimental controller.
         assert_eq!(
             ALWAYS_SKIP_PREFIXES,
             &["istio-", "linkerd-", "vault-", "cilium-"]

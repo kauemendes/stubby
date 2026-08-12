@@ -137,22 +137,32 @@ async fn apply_stub(
     pod: &Pod,
     items: &[(String, String, String)],
 ) -> Result<(), Error> {
-    let mut originals = rescued_originals(pod);
-    let mut containers = Vec::new();
-    for (cname, orig, dummy) in items {
-        originals.insert(cname.clone(), orig.clone());
-        containers.push(serde_json::json!({"name": cname, "image": dummy}));
-    }
-    let patch = serde_json::json!({
-        "metadata": {"annotations": {
-            ORIGINAL_IMAGE: encode_original_images(&originals),
-            RESCUED_AT: now_rfc3339(),
-        }},
-        "spec": {"containers": containers}
-    });
+    let originals = rescued_originals(pod);
+    let patch = build_stub_patch(&originals, items);
     pods.patch(name, &PatchParams::default(), &Patch::Strategic(patch))
         .await?;
     Ok(())
+}
+
+/// Build the strategic-merge patch that stubs `items` (container_name,
+/// original_image, dummy_image), recording the merged originals map.
+pub fn build_stub_patch(
+    originals: &BTreeMap<String, String>,
+    items: &[(String, String, String)],
+) -> serde_json::Value {
+    let mut merged = originals.clone();
+    let mut containers = Vec::new();
+    for (cname, orig, dummy) in items {
+        merged.insert(cname.clone(), orig.clone());
+        containers.push(serde_json::json!({"name": cname, "image": dummy}));
+    }
+    serde_json::json!({
+        "metadata": {"annotations": {
+            ORIGINAL_IMAGE: encode_original_images(&merged),
+            RESCUED_AT: now_rfc3339(),
+        }},
+        "spec": {"containers": containers}
+    })
 }
 
 /// Restore each container's original image and delete the controller
@@ -162,20 +172,26 @@ async fn apply_revert(
     name: &str,
     items: &[(String, String)],
 ) -> Result<(), Error> {
+    let patch = build_revert_patch(items);
+    pods.patch(name, &PatchParams::default(), &Patch::Strategic(patch))
+        .await?;
+    Ok(())
+}
+
+/// Build the strategic-merge patch that restores `items` (container_name,
+/// original_image) and deletes the controller annotations.
+pub fn build_revert_patch(items: &[(String, String)]) -> serde_json::Value {
     let containers: Vec<_> = items
         .iter()
         .map(|(cname, orig)| serde_json::json!({"name": cname, "image": orig}))
         .collect();
-    let patch = serde_json::json!({
+    serde_json::json!({
         "metadata": {"annotations": {
             ORIGINAL_IMAGE: serde_json::Value::Null,
             RESCUED_AT: serde_json::Value::Null,
         }},
         "spec": {"containers": containers}
-    });
-    pods.patch(name, &PatchParams::default(), &Patch::Strategic(patch))
-        .await?;
-    Ok(())
+    })
 }
 
 /// Read every referenced pull secret's `.dockerconfigjson` payload. Missing or
@@ -206,11 +222,7 @@ async fn pull_secrets(client: &kube::Client, ns: &str, pod: &Pod) -> Vec<Vec<u8>
 }
 
 fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("@{secs}")
+    k8s_openapi::chrono::Utc::now().to_rfc3339()
 }
 
 #[cfg(test)]
@@ -269,5 +281,34 @@ mod tests {
             &avail,
         );
         assert!(matches!(plan, Plan::Stub(_)));
+    }
+
+    #[test]
+    fn stub_patch_sets_dummy_image_and_records_original() {
+        let originals = BTreeMap::new();
+        let items = vec![(
+            "app".to_string(),
+            "orig:1".to_string(),
+            "dummy:1".to_string(),
+        )];
+        let p = build_stub_patch(&originals, &items);
+        assert_eq!(p["spec"]["containers"][0]["name"], "app");
+        assert_eq!(p["spec"]["containers"][0]["image"], "dummy:1");
+        let recorded: BTreeMap<String, String> = serde_json::from_str(
+            p["metadata"]["annotations"]["stubby.io/original-image"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recorded.get("app").map(String::as_str), Some("orig:1"));
+    }
+
+    #[test]
+    fn revert_patch_restores_image_and_nulls_annotations() {
+        let items = vec![("app".to_string(), "orig:1".to_string())];
+        let p = build_revert_patch(&items);
+        assert_eq!(p["spec"]["containers"][0]["image"], "orig:1");
+        assert!(p["metadata"]["annotations"]["stubby.io/original-image"].is_null());
+        assert!(p["metadata"]["annotations"]["stubby.io/rescued-at"].is_null());
     }
 }
