@@ -16,7 +16,9 @@ impl ControllerConfig {
         Ok(Self {
             backend_image: required("STUBBY_IMAGE_BACKEND")?,
             frontend_image: required("STUBBY_IMAGE_FRONTEND")?,
-            check_interval: parse_interval_secs(std::env::var("STUBBY_CHECK_INTERVAL_SECS").ok().as_deref()),
+            check_interval: parse_interval_secs(
+                std::env::var("STUBBY_CHECK_INTERVAL_SECS").ok().as_deref(),
+            ),
         })
     }
 }
@@ -41,8 +43,17 @@ mod tests {
 
     #[test]
     fn parses_check_interval_seconds() {
-        assert_eq!(parse_interval_secs(Some("30")), std::time::Duration::from_secs(30));
-        assert_eq!(parse_interval_secs(Some("bad")), std::time::Duration::from_secs(60));
-        assert_eq!(parse_interval_secs(None), std::time::Duration::from_secs(60));
+        assert_eq!(
+            parse_interval_secs(Some("30")),
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            parse_interval_secs(Some("bad")),
+            std::time::Duration::from_secs(60)
+        );
+        assert_eq!(
+            parse_interval_secs(None),
+            std::time::Duration::from_secs(60)
+        );
     }
 }
