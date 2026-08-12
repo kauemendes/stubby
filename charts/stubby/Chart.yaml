@@ -2,8 +2,8 @@ apiVersion: v2
 name: stubby
 description: Kubernetes mutating webhook that injects dummy backend/frontend images via annotation
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 home: https://github.com/kauemendes/stubby
 sources:
   - https://github.com/kauemendes/stubby
