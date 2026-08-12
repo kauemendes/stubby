@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-12
+
+Pod Security "restricted" compliance fixes for mutated pods, plus an
+experimental reactive auto-rescue controller.
+
 ### Changed
 
 - **Dummy frontend is now a Rust/`axum` binary** instead of nginx. It
@@ -117,5 +122,6 @@ and frontends.
   return HTTP 200 with an `AdmissionResponse.status` so the contract
   holds.
 
-[Unreleased]: https://github.com/kauemendes/stubby/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kauemendes/stubby/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kauemendes/stubby/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kauemendes/stubby/releases/tag/v0.1.0

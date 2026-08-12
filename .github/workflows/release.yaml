@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [webhook, dummy-backend, dummy-frontend]
+        component: [webhook, dummy-backend, dummy-frontend, controller]
     outputs:
       digest-webhook: ${{ steps.build.outputs.digest }}
     steps:
