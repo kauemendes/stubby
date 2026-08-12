@@ -196,6 +196,14 @@ dummy in place, then reverts once the tag is published to the registry.
 Enable it with `--set controller.enabled=true`. It patches only the pod's
 `image` (never the Deployment), so it does not conflict with GitOps.
 
+Auto-rescue is for pods the **webhook does not already stub proactively**.
+Don't set `stubby.io/type` on an auto-rescue pod in a webhook-enabled
+namespace: the webhook would swap the image at admission (proactive mode)
+and the pod would never reach `ImagePullBackOff` for the controller to
+react to. Leave `type` off — the controller defaults to the backend dummy —
+or set `stubby.io/type: frontend` only where the webhook is excluded (e.g.
+a namespace labelled `stubby.io/exclude=true`).
+
 **Experimental limitations:** only `image` is mutable on a live pod, so the
 dummy inherits the pod's existing `ports`/`probes`/`env`. It listens on
 `8080` (backend) / `80` (frontend), or on `STUBBY_PORT` if you declare that
