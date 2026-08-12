@@ -21,6 +21,16 @@ async fn main() -> Result<()> {
         .init();
 
     observability::init_metrics();
+
+    // Install the rustls process-wide crypto provider exactly once before
+    // building the kube client. kube's rustls-tls stack pulls in more than one
+    // provider transitively, so rustls cannot auto-pick and panics unless a
+    // default is installed. `.ok()` because in a fresh main() it cannot already
+    // be installed. Mirrors crates/webhook/src/main.rs.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+
     let cfg = ControllerConfig::from_env()?;
     let client = Client::try_default().await?;
     let pods: Api<Pod> = Api::all(client.clone());

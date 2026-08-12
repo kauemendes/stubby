@@ -1,0 +1,55 @@
+# Reactive auto-rescue demo.
+#
+# reactive-api points at an image that does not exist, so its pod goes
+# ImagePullBackOff. The reactive controller (stubby.io/auto-rescue=true) reacts
+# by swapping the image to the dummy backend IN PLACE and recording the original
+# under stubby.io/original-image so a later revert can restore it.
+#
+# It lives in a namespace labelled stubby.io/exclude=true so the admission
+# webhook (which the chart's namespaceSelector excludes on that label) does NOT
+# mutate the pod at CREATE. Without that, the webhook would swap the image up
+# front — the pod would never fail to pull and the controller would never run,
+# so this would stop testing the reactive path. The webhook and the controller
+# both key off stubby.io/type; keeping them apart is what makes each observable.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reactive
+  labels:
+    stubby.io/exclude: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reactive-api
+  namespace: reactive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reactive-api
+  template:
+    metadata:
+      labels:
+        app: reactive-api
+      annotations:
+        stubby.io/auto-rescue: "true"
+        stubby.io/type: backend
+    spec:
+      containers:
+        # A repo/tag that does not exist -> ImagePullBackOff, which the
+        # controller reacts to by swapping in the dummy backend.
+        - name: api
+          image: ghcr.io/kauemendes/stubby-nonexistent:notbuilt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reactive-api
+  namespace: reactive
+spec:
+  selector:
+    app: reactive-api
+  ports:
+    - port: 8080
+      targetPort: 8080

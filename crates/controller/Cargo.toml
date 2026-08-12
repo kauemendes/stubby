@@ -25,6 +25,7 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 base64.workspace = true
+rustls.workspace = true
 axum.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true

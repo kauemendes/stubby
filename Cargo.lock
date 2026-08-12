@@ -2418,6 +2418,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "oci-client",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
