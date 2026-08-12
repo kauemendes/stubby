@@ -1,0 +1,61 @@
+{{- if .Values.controller.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stubby.fullname" . }}-controller
+  labels:
+    {{- include "stubby.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "stubby.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "stubby.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: {{ include "stubby.fullname" . }}-controller
+      securityContext:
+        runAsNonRoot: true
+        # The distroless :nonroot base declares a non-numeric USER (nonroot),
+        # which the kubelet cannot verify against runAsNonRoot. Pin the numeric
+        # UID/GID (65532 = distroless nonroot) so the pod passes admission.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: STUBBY_IMAGE_BACKEND
+              value: {{ .Values.dummyImages.backend | quote }}
+            - name: STUBBY_IMAGE_FRONTEND
+              value: {{ .Values.dummyImages.frontend | quote }}
+            - name: STUBBY_CHECK_INTERVAL_SECS
+              value: {{ .Values.controller.checkIntervalSeconds | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.logLevel | default "info" | quote }}
+          ports:
+            - name: metrics
+              containerPort: 9090
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+          readinessProbe:
+            httpGet: { path: /readyz, port: metrics }
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+{{- end }}

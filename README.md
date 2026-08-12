@@ -27,6 +27,7 @@
 - [Quick start](#quick-start)
 - [Annotation reference](#annotation-reference)
 - [What gets injected](#what-gets-injected)
+- [Auto-rescue (experimental)](#auto-rescue-experimental)
 - [Configuration](#configuration)
 - [Observability](#observability)
 - [Security](#security)
@@ -183,6 +184,34 @@ keep the pod red while the real app is unprovisioned:
 
 JSON Patch operations use `add` (not `replace`) for optional fields so
 previously-absent fields don't fail with RFC 6902 conflicts.
+
+## Auto-rescue (experimental)
+
+Instead of the proactive opt-in, you can let stubby react: point your
+Deployment at the **real** image from day one and annotate the pod
+`stubby.io/auto-rescue: "true"`. While the tag doesn't exist the pod would
+sit in `ImagePullBackOff`; the optional controller swaps the image for a
+dummy in place, then reverts once the tag is published to the registry.
+
+Enable it with `--set controller.enabled=true`. It patches only the pod's
+`image` (never the Deployment), so it does not conflict with GitOps.
+
+Auto-rescue is for pods the **webhook does not already stub proactively**.
+Don't set `stubby.io/type` on an auto-rescue pod in a webhook-enabled
+namespace: the webhook would swap the image at admission (proactive mode)
+and the pod would never reach `ImagePullBackOff` for the controller to
+react to. Leave `type` off — the controller defaults to the backend dummy —
+or set `stubby.io/type: frontend` only where the webhook is excluded (e.g.
+a namespace labelled `stubby.io/exclude=true`).
+
+**Experimental limitations:** only `image` is mutable on a live pod, so the
+dummy inherits the pod's existing `ports`/`probes`/`env`. It listens on
+`8080` (backend) / `80` (frontend), or on `STUBBY_PORT` if you declare that
+env var on the container yourself; if a probe targets a different port,
+declare `STUBBY_PORT` to match. Only app-container image pulls are rescued
+(not init containers). Kubernetes Events are not yet emitted — observe via
+the controller's logs and the `stubby_rescued_pods` / `stubby_rescue_actions_total`
+metrics.
 
 ## Configuration
 

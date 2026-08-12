@@ -1,0 +1,41 @@
+{{- if .Values.controller.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "stubby.fullname" . }}-controller
+  labels:
+    {{- include "stubby.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "stubby.fullname" . }}-controller
+  labels:
+    {{- include "stubby.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Needed to read imagePullSecrets for registry availability checks.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "stubby.fullname" . }}-controller
+  labels:
+    {{- include "stubby.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "stubby.fullname" . }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stubby.fullname" . }}-controller
+    namespace: {{ .Release.Namespace }}
+{{- end }}
