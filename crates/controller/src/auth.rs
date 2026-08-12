@@ -44,7 +44,9 @@ fn host_matches(host: &str, entry_host: &str) -> bool {
 /// Decode either an `auth` (base64 `user:pass`) or explicit `username`/`password`.
 fn decode_entry(entry: &Value) -> Option<(String, String)> {
     if let Some(auth) = entry.get("auth").and_then(Value::as_str) {
-        let decoded = base64::engine::general_purpose::STANDARD.decode(auth).ok()?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(auth)
+            .ok()?;
         let s = String::from_utf8(decoded).ok()?;
         let (u, p) = s.split_once(':')?;
         return Some((u.to_string(), p.to_string()));
@@ -63,7 +65,8 @@ mod tests {
         let auth = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
         serde_json::to_vec(&serde_json::json!({
             "auths": { host: { "auth": auth } }
-        })).unwrap()
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -82,6 +85,9 @@ mod tests {
     #[test]
     fn none_when_no_match_or_garbage() {
         assert_eq!(credentials_for("ghcr.io", &[b"not json".to_vec()]), None);
-        assert_eq!(credentials_for("ghcr.io", &[dockercfg("other.io", "u", "p")]), None);
+        assert_eq!(
+            credentials_for("ghcr.io", &[dockercfg("other.io", "u", "p")]),
+            None
+        );
     }
 }

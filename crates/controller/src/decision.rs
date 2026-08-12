@@ -156,7 +156,10 @@ mod tests {
             "spec": {"containers": [{"name": "app", "image": "ghcr.io/test/be:1"}]}
         }));
         let orig = rescued_originals(&p);
-        assert_eq!(orig.get("app").map(String::as_str), Some("ghcr.io/acme/app:v1"));
+        assert_eq!(
+            orig.get("app").map(String::as_str),
+            Some("ghcr.io/acme/app:v1")
+        );
     }
 
     #[test]
