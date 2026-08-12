@@ -12,6 +12,7 @@ of the Deployment / StatefulSet / Job / etc.).
 | `stubby.io/skip-containers` | CSV | (none) | Container names within the pod to leave untouched. |
 | `stubby.io/keep-env-from` | `true` \| `false` | `false` | Keep the container's `envFrom` instead of stripping it (see below). |
 | `stubby.io/keep-volumes` | `true` \| `false` | `false` | Keep `volumeMounts` and orphaned `volumes` instead of pruning them (see below). |
+| `stubby.io/auto-rescue` | `true` \| `false` | `false` | Experimental. Requires the controller (`controller.enabled`). When the container is stuck in `ImagePullBackOff`/`ErrImagePull`, swap it to a dummy in place and revert once the real image is available. `stubby.io/type`/`port` act as hints. |
 
 ## Skipped sidecars
 

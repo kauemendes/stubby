@@ -112,3 +112,15 @@ The chart's defaults (`resources.requests`) are intentionally small
 (50m CPU, 64Mi memory). If your cluster runs many tiny namespaces and
 the webhook gets evicted, bump `resources.requests` upwards in your
 values overlay.
+
+## Auto-rescued pod isn't reverting
+
+The controller re-checks the registry every `controller.checkIntervalSeconds`.
+If a pod stays on the dummy after the real image is published:
+
+1. Confirm the controller is running:
+   `kubectl get deploy -l app.kubernetes.io/component=controller -A`.
+2. Check its logs for `image not available yet` — usually a pull-secret or
+   registry-auth problem. The controller reads the pod's `imagePullSecrets`.
+3. Confirm the recorded original:
+   `kubectl get pod <pod> -o jsonpath='{.metadata.annotations.stubby\.io/original-image}'`.

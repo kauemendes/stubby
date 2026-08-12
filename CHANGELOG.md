@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Volumes still used by a skipped sidecar or init container are kept.
 - **e2e regression cases** for each of the three defects above
   (`test/e2e/cases/defect{1,2,3}-*.sh`) plus example manifests.
+- **Experimental auto-rescue controller** (`controller.enabled`, off by
+  default) — reacts to `ImagePullBackOff` on pods annotated
+  `stubby.io/auto-rescue: "true"`, swaps the image for a dummy in place,
+  and reverts once the real image is published to the registry. In-place
+  patch only (GitOps-safe); registry checks use the pod's imagePullSecrets.
 
 ### Fixed
 

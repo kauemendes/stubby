@@ -43,6 +43,10 @@ this is a **separate, reactive controller** that watches pod status.
 - Changing the webhook's proactive behaviour.
 - Rescuing failures other than image-pull (`CreateContainerConfigError`,
   etc. are the webhook's job at admission).
+- Init-container image-pull failures: v1 only inspects
+  `status.container_statuses` (app containers), not
+  `status.init_container_statuses` — a documented experimental
+  limitation.
 
 ## Architecture
 
@@ -83,15 +87,16 @@ State is derived from pod annotations + container statuses:
     2. Patch `spec.containers[i].image` to the dummy image
        (`dummyImages.backend` unless `stubby.io/type: frontend`).
     3. Set `stubby.io/rescued-at` (RFC3339) for observability.
-    4. Emit Event `Stubbed`; increment the `stubby_rescued_pods` gauge
-       and `stubby_rescue_actions_total{action="stub"}`.
+    4. Increment the `stubby_rescued_pods` gauge and
+       `stubby_rescue_actions_total{action="stub"}` (Events deferred; see
+       Observability).
 
 - **Rescued** (has `stubby.io/original-image`):
   → every `checkInterval`, for each recorded original image, run the
     **registry check**. When *all* recorded originals are present:
     → **REVERT**: patch each `image` back to its original, delete the
       `stubby.io/original-image` / `stubby.io/rescued-at` annotations,
-      emit Event `Reverted`, decrement the gauge, increment
+      decrement the gauge, increment
       `stubby_rescue_actions_total{action="revert"}`.
 
 Patches use a JSON-merge/strategic patch with the observed
@@ -142,13 +147,14 @@ Everything gated on `.Values.controller.enabled` (default `false`):
 
 - `templates/controller-deployment.yaml`
 - `templates/controller-rbac.yaml` — `ServiceAccount`, `ClusterRole`
-  (`pods`: get/list/watch/patch; `events`: create/patch; `secrets`: get
-  — required to read pull secrets), `ClusterRoleBinding`.
+  (`pods`: get/list/watch/patch; `secrets`: get — required to read pull
+  secrets), `ClusterRoleBinding`. No `events` verb (Events are deferred;
+  see Observability).
 - New values:
   - `controller.enabled: false`
   - `controller.image.repository` / `.tag` / `.pullPolicy`
   - `controller.replicaCount: 1`
-  - `controller.checkInterval: "60s"`
+  - `controller.checkIntervalSeconds: 60`
   - `controller.resources` (small burstable default)
 
 `secrets: get` is cluster-wide by default because auto-rescue can be used
@@ -164,7 +170,10 @@ non-root, read-only rootfs, `drop: [ALL]`, seccomp `RuntimeDefault`.
 
 - Gauge `stubby_rescued_pods` — currently-stubbed pods.
 - Counter `stubby_rescue_actions_total{action="stub"|"revert"}`.
-- Kubernetes Events on the pod: `Stubbed`, `Reverted`, `RescueFailed`.
+- Kubernetes Events on the pod (`Stubbed`, `Reverted`, `RescueFailed`) are
+  **deferred (future work)** for the experimental controller; for now,
+  observability is via structured logs plus the two Prometheus metrics
+  above. Consequently the RBAC below does not request the `events` verb.
 - Structured JSON logs via `tracing`, consistent with the webhook.
 
 ## Testing
