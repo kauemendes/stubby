@@ -158,4 +158,14 @@ mod tests {
         let orig = rescued_originals(&p);
         assert_eq!(orig.get("app").map(String::as_str), Some("ghcr.io/acme/app:v1"));
     }
+
+    #[test]
+    fn sidecar_prefixes_match_webhook() {
+        // Keep this list identical to crates/webhook/src/patch.rs
+        // ALWAYS_SKIP_PREFIXES. If the webhook adds a prefix, add it here too.
+        assert_eq!(
+            ALWAYS_SKIP_PREFIXES,
+            &["istio-", "linkerd-", "vault-", "cilium-"]
+        );
+    }
 }
