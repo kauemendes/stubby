@@ -1,0 +1,39 @@
+suite: controller
+templates:
+  - controller-deployment.yaml
+  - controller-rbac.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      controller.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders deployment and rbac when enabled
+    set:
+      controller.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: controller-deployment.yaml
+      - containsDocument:
+          kind: ClusterRole
+          apiVersion: rbac.authorization.k8s.io/v1
+        template: controller-rbac.yaml
+        documentIndex: 1
+
+  - it: runs restricted and reads the check interval
+    set:
+      controller.enabled: true
+      controller.checkIntervalSeconds: 15
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: STUBBY_CHECK_INTERVAL_SECS
+            value: "15"
