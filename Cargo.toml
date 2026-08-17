@@ -1,5 +1,8 @@
 [workspace]
-resolver = "2"
+# resolver v3 is MSRV-aware: it prefers dependency versions compatible with
+# `rust-version` (1.85), so `cargo update`/Dependabot don't pull crates that
+# need a newer rustc. Stable since Rust 1.84.
+resolver = "3"
 members = [
     "crates/webhook",
     "crates/dummy-backend",
